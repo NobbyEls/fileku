@@ -626,12 +626,15 @@ input::placeholder{color:var(--text3)}
     <div class="form-2">
       <div class="form-row"><label>Brand</label>
         <select id="f-brand-m"><option value="ACER">ACER</option><option value="ASUS">ASUS</option><option value="LENOVO">LENOVO</option><option value="HP">HP</option></select></div>
-      <div class="form-row"><label>Rebate per Unit (Rp)</label>
-        <input type="number" id="f-rebate" placeholder="75000"></div>
+      <div class="form-row"><label>Rebate Default (Rp)</label>
+        <input type="number" id="f-rebate" placeholder="75000">
+        <div class="form-hint">Dipakai jika SKU tidak punya rebate sendiri.</div></div>
     </div>
-    <div class="form-row"><label>SKU List (Kode Barang)</label>
-      <textarea id="f-sku" placeholder="NB-AC-A715-59G-516G, NB-AC-AG14-71M-5471&#10;Pisah koma atau per baris"></textarea>
-      <div class="form-hint">Kode Barang dari data POS yang berlaku untuk program ini.</div></div>
+    <div class="form-row"><label>SKU List + Rebate per SKU</label>
+      <div id="sku-rows"></div>
+      <button type="button" class="btn btn-outline btn-sm" style="margin-top:8px" onclick="addSkuRow('','')">+ Tambah SKU</button>
+      <div class="form-hint">Tiap SKU bisa punya rebate sendiri. Kosongkan rebate untuk pakai nilai default.</div>
+    </div>
     <div class="form-2">
       <div class="form-row"><label>Tanggal Mulai</label><input type="date" id="f-mulai"></div>
       <div class="form-row"><label>Tanggal Akhir</label><input type="date" id="f-akhir"></div>
@@ -881,7 +884,11 @@ function loadProgramPage(){
       const d=JSON.parse(res);if(!d.ok){toast(d.error,'err');return;}
       allPrograms=d.rows.map(p=>({
         ...p,
-        skuArray:p.skuList.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean)
+        skuArray:p.skuList.split(',').map(s=>{
+          var t=s.trim();var ci=t.lastIndexOf(':');
+          if(ci>0){var sk=t.substring(0,ci).trim();var rb=t.substring(ci+1).trim();if(!isNaN(Number(rb))&&Number(rb)>0)return sk.toUpperCase();}
+          return t.toUpperCase();
+        }).filter(Boolean)
       }));
       ensureHasil(renderProgCards);
     })
@@ -1016,8 +1023,13 @@ function loadPrograms(){
       tb.innerHTML='<tr><td colspan="8"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program.</div></td></tr>';return;
     }
     tb.innerHTML=d.rows.map(p=>{
-      const skuArr=p.skuList.split(',');
-      const skuPrev=skuArr.slice(0,2).map(s=>s.trim()).join(', ')+(skuArr.length>2?` +${skuArr.length-2} lagi`:'');
+      const skuArr=p.skuList.split(',').map(s=>s.trim()).filter(Boolean);
+      // Format preview: tampilkan SKU + rebate per item
+      const skuPrev=skuArr.slice(0,3).map(s=>{
+        var ci=s.lastIndexOf(':');
+        if(ci>0){var sk=s.substring(0,ci).trim();var rb=s.substring(ci+1).trim();return sk+' (Rp '+Number(rb).toLocaleString('id')+')';}
+        return s;
+      }).join(', ')+(skuArr.length>3?' +'+( skuArr.length-3)+' lagi':'');
       const rowJson=JSON.stringify(p).split("'").join('&#39;').split('"').join('&quot;');
       // PATCH: program yang periodenya sudah lewat -> otomatis tampil non-aktif (Kadaluarsa)
       const expired=isExpired(p);
@@ -1028,9 +1040,9 @@ function loadPrograms(){
         <td class="text-sm" style="color:var(--text3)">${p.id}</td>
         <td class="fw-600">${p.nama}</td>
         <td><span class="badge b-${p.brand.toLowerCase()}">${p.brand}</span></td>
-        <td class="text-sm">${skuPrev}</td>
+        <td class="text-sm wrap">${skuPrev}</td>
         <td class="text-sm nowrap">${p.tglMulai} &#8211; ${p.tglAkhir}</td>
-        <td class="text-sm nowrap">Rp ${Number(p.rebate).toLocaleString('id')}</td>
+        <td class="text-sm nowrap">Rp ${Number(p.rebate).toLocaleString('id')} (default)</td>
         <td>${aktifBadge}</td>
         <td style="white-space:nowrap">
           <button class="btn btn-outline btn-sm" onclick='openModal(${rowJson})'>Edit</button>
@@ -1044,29 +1056,66 @@ function openModal(prog){
   document.getElementById('modal-title').textContent=prog?'Edit Program Rebate':'Tambah Program Rebate';
   document.getElementById('f-nama').value    =prog?prog.nama    :'';
   document.getElementById('f-brand-m').value =prog?prog.brand   :'ACER';
-  document.getElementById('f-sku').value     =prog?prog.skuList :'';
   document.getElementById('f-rebate').value  =prog?prog.rebate  :'';
   document.getElementById('f-aktif').value   =prog?prog.aktif   :'YES';
   document.getElementById('f-ket').value     =prog?prog.ket     :'';
   const toDt=s=>{if(!s)return'';const p=s.split('/');return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:s;};
   document.getElementById('f-mulai').value=prog?toDt(prog.tglMulai):'';
   document.getElementById('f-akhir').value=prog?toDt(prog.tglAkhir):'';
+  // Populate SKU rows
+  document.getElementById('sku-rows').innerHTML='';
+  if(prog&&prog.skuList){
+    var items=prog.skuList.split(',').map(function(s){return s.trim();}).filter(Boolean);
+    items.forEach(function(entry){
+      var colonIdx=entry.lastIndexOf(':');
+      if(colonIdx>0){
+        var maybeSku=entry.substring(0,colonIdx).trim();
+        var maybeReb=entry.substring(colonIdx+1).trim();
+        if(!isNaN(Number(maybeReb))&&Number(maybeReb)>0){addSkuRow(maybeSku,maybeReb);return;}
+      }
+      addSkuRow(entry,'');
+    });
+  }else{
+    addSkuRow('','');
+  }
   document.getElementById('overlay').classList.add('open');
+}
+function addSkuRow(sku,rebate){
+  var container=document.getElementById('sku-rows');
+  var row=document.createElement('div');
+  row.style.cssText='display:flex;gap:8px;margin-bottom:6px;align-items:center';
+  row.innerHTML='<input type="text" placeholder="Kode SKU" style="flex:2" value="'+String(sku||'').split('"').join('&quot;')+'">'+
+    '<input type="number" placeholder="Rebate (kosong=default)" style="flex:1;min-width:120px" value="'+(rebate||'')+'">'+
+    '<button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" style="flex-shrink:0;padding:4px 8px">&#10005;</button>';
+  container.appendChild(row);
 }
 function closeModal(){document.getElementById('overlay').classList.remove('open');}
 function overlayClick(e){if(e.target.id==='overlay')closeModal();}
 function saveProgram(){
   const nama  =document.getElementById('f-nama').value.trim();
   const brand =document.getElementById('f-brand-m').value;
-  var _skuRaw =document.getElementById('f-sku').value;
-  _skuRaw=_skuRaw.split(String.fromCharCode(13)).join(',').split(String.fromCharCode(10)).join(',');
-  const sku   =_skuRaw.split(',').map(function(x){return x.trim();}).filter(Boolean).join(', ');
   const rebate=document.getElementById('f-rebate').value;
   const mulai =document.getElementById('f-mulai').value;
   const akhir =document.getElementById('f-akhir').value;
   const aktif =document.getElementById('f-aktif').value;
   const ket   =document.getElementById('f-ket').value;
-  if(!nama||!sku||!rebate||!mulai||!akhir){toast('Nama, SKU, rebate, dan periode wajib diisi','err');return;}
+  // Collect SKU rows
+  var skuContainer=document.getElementById('sku-rows');
+  var skuItems=[];
+  var rows=skuContainer.children;
+  for(var i=0;i<rows.length;i++){
+    var inputs=rows[i].querySelectorAll('input');
+    var skuVal=inputs[0].value.trim();
+    var rebVal=inputs[1].value.trim();
+    if(!skuVal) continue;
+    if(rebVal&&Number(rebVal)>0){
+      skuItems.push(skuVal+':'+rebVal);
+    }else{
+      skuItems.push(skuVal);
+    }
+  }
+  var sku=skuItems.join(', ');
+  if(!nama||!sku||!rebate||!mulai||!akhir){toast('Nama, minimal 1 SKU, rebate default, dan periode wajib diisi','err');return;}
   const fmtDate=s=>s?s.split('-').reverse().join('/'):'';
   const payload={id:editRow?editRow.id:null,rowIndex:editRow?editRow.rowIndex:null,
     nama,brand,skuList:sku,tglMulai:fmtDate(mulai),tglAkhir:fmtDate(akhir),rebate:Number(rebate),aktif,ket};
@@ -1099,13 +1148,30 @@ function snInProgramPeriod(r,p){
   return d>=start && d<=end;
 }
 // Hitung ulang status sebuah SN khusus untuk konteks 1 program (berbasis periode).
-// SN dengan tgl brand → valid/diluar ditentukan periode program ini.
-// SN tanpa tgl brand (Tidak Ditemukan / Ditolak brand) → biarkan apa adanya.
+// v2.2: lookup rebate per-SKU dari skuList program.
 function deriveRowForProgram(r,p){
   const d=parseDMY(r.tglBrand);
   let status=r.status, rebate=0;
   if(d){
-    if(snInProgramPeriod(r,p)){ status='VALID'; rebate=Number(p.rebate)||0; }
+    if(snInProgramPeriod(r,p)){
+      status='VALID';
+      // Cari rebate khusus untuk SKU ini
+      rebate=Number(p.rebate)||0; // default
+      var skuKey=String(r.kodeBarang||'').toUpperCase();
+      var skuStr=String(p.skuList||'');
+      var entries=skuStr.split(',');
+      for(var i=0;i<entries.length;i++){
+        var entry=entries[i].trim();
+        var colonIdx=entry.lastIndexOf(':');
+        if(colonIdx>0){
+          var esku=entry.substring(0,colonIdx).trim().toUpperCase();
+          var ereb=Number(entry.substring(colonIdx+1).trim());
+          if(esku===skuKey&&!isNaN(ereb)&&ereb>0){rebate=ereb;break;}
+        }else{
+          if(entry.toUpperCase()===skuKey){break;}
+        }
+      }
+    }
     else { status='DILUAR PERIODE'; rebate=0; }
   }
   return Object.assign({},r,{status:status,rebate:rebate,program:p.nama});

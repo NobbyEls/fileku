@@ -1,13 +1,15 @@
 /**
  * ============================================================
- * REBATE VALIDATOR v2 — Code.gs  (Google Apps Script)
+ * REBATE VALIDATOR v2.2 — Code.gs  (Google Apps Script)
  * Validasi Serial Number berbasis SKU + Web App Interface
  * Brand: ACER | ASUS | LENOVO | HP
  * ============================================================
- * PERUBAHAN v2.1:
- *  - _getAllActivePrograms(): program yang tgl akhirnya sudah
- *    lewat dari hari ini otomatis dianggap NON-AKTIF (tidak ikut
- *    validasi & tidak muncul di Dashboard "Program Aktif").
+ * PERUBAHAN v2.2:
+ *  - Multi-SKU rebate: tiap SKU dalam satu program bisa punya
+ *    nilai rebate berbeda. Format kolom SKU List:
+ *      "SKU-A:75000, SKU-B:100000, SKU-C"
+ *    SKU tanpa :angka menggunakan nilai default dari kolom Rebate.
+ *  - _getAllActivePrograms(): program kadaluarsa otomatis non-aktif.
  * ============================================================
  * CARA INSTALL:
  *  1. Buka Google Sheet baru
@@ -143,6 +145,7 @@ function getDashboardData() {
       skuCount: p.skuList.length,
       periode: `${_fmt(p.mulai)} – ${_fmt(p.akhir)}`,
       rebate: p.rebate,
+      skuDetails: p.skuList.map(item => item.sku + ':' + item.rebate),
     }));
 
     return JSON.stringify({ ok:true, posRows, brandRows, summary, programs });
@@ -391,18 +394,17 @@ function _setupSetting(ss) {
   const y = new Date().getFullYear();
   const sample = [
     ['PRG-ACER-2026Q2','Acer A715 Promo','ACER',
-     'NB-AC-A715-59G-516G, NB-AC-AG14-71M-5471',
-     new Date(y,3,1), new Date(y,5,30), 75000,'YES',''],
+     'NB-AC-A715-59G-516G:75000, NB-AC-AG14-71M-5471:100000',
+     new Date(y,3,1), new Date(y,5,30), 75000,'YES','Format: SKU:Rebate per item'],
     ['PRG-ASUS-2026H1','Asus Vivobook Promo','ASUS',
-     'NB-AS-X1504VA-NJ, NB-AS-M1503IA-EJ',
-     new Date(y,0,1), new Date(y,5,30), 50000,'YES',''],
+     'NB-AS-X1504VA-NJ:50000, NB-AS-M1503IA-EJ:65000',
+     new Date(y,0,1), new Date(y,5,30), 50000,'YES','SKU tanpa :angka pakai kolom G'],
     ['PRG-LNVO-2026','Lenovo IdeaPad Rebate','LENOVO',
-     'NB-LN-IDEAPAD-3-15, NB-LN-LEGION-5-15',
+     'NB-LN-IDEAPAD-3-15:60000, NB-LN-LEGION-5-15:80000',
      new Date(y,0,1), new Date(y,11,31), 60000,'YES',''],
     ['PRG-HP-2026H1','HP Laptop Mainstream Promo','HP',
-     'BD0X9PA#AR6, 6D0M1PA#AR6',
-     new Date(y,0,1), new Date(y,5,30), 55000,'YES',
-     'SKU No dari kolom K file HP (format: BD0X9PA#AR6)'],
+     'BD0X9PA#AR6:55000, 6D0M1PA#AR6:70000',
+     new Date(y,0,1), new Date(y,5,30), 55000,'YES',''],
   ];
   s.getRange(3, 1, sample.length, hdr.length).setValues(sample);
   s.getRange(3, 5, sample.length, 2).setNumberFormat('DD/MM/YYYY');
@@ -450,12 +452,13 @@ function _runValidasi() {
   const posData = _getAllPenjualan();
   if (!posData.length) throw new Error('Sheet 📦 Data Penjualan kosong');
 
-  // Bangun peta SKU → [program...] untuk lookup O(1)
+  // Bangun peta SKU → [{program, rebate}...] untuk lookup O(1)
+  // v2.2: skuMap[SKU_KEY] = [{prog, rebateForSku}, ...]
   const skuMap = {};
   programs.forEach(p => {
-    p.skuList.forEach(sku => {
-      const k = sku.toUpperCase();
-      (skuMap[k] = skuMap[k] || []).push(p);
+    p.skuList.forEach(item => {
+      const k = item.sku.toUpperCase();
+      (skuMap[k] = skuMap[k] || []).push({ prog: p, rebateForSku: item.rebate });
     });
   });
 
@@ -468,10 +471,10 @@ function _runValidasi() {
 
   posData.forEach(item => {
     const skuKey = item.kodeBarang.toUpperCase().trim();
-    const matchProgs = skuMap[skuKey];
-    if (!matchProgs) return; // SKU tidak masuk program manapun — lewat
+    const matchEntries = skuMap[skuKey];
+    if (!matchEntries) return; // SKU tidak masuk program manapun — lewat
 
-    const brand    = matchProgs[0].brand;
+    const brand    = matchEntries[0].prog.brand;
     const brandMap = brandMaps[brand] || {};
 
     // Kunci SN: Lenovo pakai 8 digit terakhir
@@ -508,15 +511,15 @@ function _runValidasi() {
 
     const tglBrand = _getBrandDate(brand, bRow);
 
-    // Cek periode — ambil program pertama yang cocok
-    let validProg = null;
-    for (const p of matchProgs) {
-      if (_inPeriode(tglBrand, p)) { validProg = p; break; }
+    // Cek periode — ambil program pertama yang cocok + rebate per-SKU
+    let validEntry = null;
+    for (const entry of matchEntries) {
+      if (_inPeriode(tglBrand, entry.prog)) { validEntry = entry; break; }
     }
 
     const snDisplay = brand === 'LENOVO' ? (bRow.snFull || snRaw) : snRaw;
 
-    if (!validProg) {
+    if (!validEntry) {
       results.push(_baris(results.length+1, item, brand, snDisplay,
         STATUS.DILUAR_PERIODE, tglBrand, null, 0,
         `Tgl brand ${_fmt(tglBrand)} di luar periode | SKU: ${skuKey}`));
@@ -524,7 +527,7 @@ function _runValidasi() {
     }
 
     results.push(_baris(results.length+1, item, brand, snDisplay,
-      STATUS.VALID, tglBrand, validProg, validProg.rebate,
+      STATUS.VALID, tglBrand, validEntry.prog, validEntry.rebateForSku,
       `SKU: ${skuKey}`));
   });
 
@@ -533,8 +536,10 @@ function _runValidasi() {
 }
 
 // ── Load semua program aktif dari Setting ──────────────────
-// PERUBAHAN v2.1: program yang tgl akhirnya sudah lewat dari hari
-// ini otomatis dianggap NON-AKTIF (di-skip), walau kolom Aktif=YES.
+// v2.2: SKU List format baru mendukung rebate per-SKU:
+//   "SKU-A:75000, SKU-B:100000, SKU-C"
+//   SKU tanpa :angka → pakai kolom Rebate sebagai default.
+// Hasilnya: skuList = [{sku:'SKU-A', rebate:75000}, {sku:'SKU-B', rebate:100000}, ...]
 function _getAllActivePrograms() {
   const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.SETTING);
   const c = CFG.SETTING;
@@ -545,20 +550,36 @@ function _getAllActivePrograms() {
 
   return s.getRange(c.START_ROW, 1, n, 9).getValues()
     .filter(r => r[0] && r[c.AKTIF-1].toString().toUpperCase() === 'YES')
-    .map(r => ({
-      id:      r[c.ID_PROG-1],
-      nama:    r[c.NAMA_PROG-1],
-      brand:   r[c.BRAND-1].toString().toUpperCase(),
-      skuList: r[c.SKU_LIST-1].toString().split(',').map(s => s.trim()).filter(Boolean),
-      mulai:   _toDate(r[c.TGL_MULAI-1]),
-      akhir:   _toDate(r[c.TGL_AKHIR-1]),
-      rebate:  Number(r[c.REBATE-1]) || 0,
-      ket:     r[c.KET-1],
-    }))
+    .map(r => {
+      const defaultRebate = Number(r[c.REBATE-1]) || 0;
+      const skuRaw = r[c.SKU_LIST-1].toString().split(',').map(s => s.trim()).filter(Boolean);
+      const skuList = skuRaw.map(entry => {
+        const colonIdx = entry.lastIndexOf(':');
+        if (colonIdx > 0) {
+          const maybeSku = entry.substring(0, colonIdx).trim();
+          const maybeRebate = Number(entry.substring(colonIdx + 1).trim());
+          if (!isNaN(maybeRebate) && maybeRebate > 0) {
+            return { sku: maybeSku, rebate: maybeRebate };
+          }
+        }
+        // Tidak ada :angka atau angka tidak valid → pakai default
+        return { sku: entry, rebate: defaultRebate };
+      });
+      return {
+        id:      r[c.ID_PROG-1],
+        nama:    r[c.NAMA_PROG-1],
+        brand:   r[c.BRAND-1].toString().toUpperCase(),
+        skuList: skuList,
+        mulai:   _toDate(r[c.TGL_MULAI-1]),
+        akhir:   _toDate(r[c.TGL_AKHIR-1]),
+        rebate:  defaultRebate,
+        ket:     r[c.KET-1],
+      };
+    })
     // Filter program kadaluarsa: tgl akhir < hari ini → otomatis non-aktif
     .filter(p => {
       const a = p.akhir;
-      if (!a) return true;            // tanpa tgl akhir → biarkan aktif
+      if (!a) return true;
       a.setHours(23, 59, 59, 999);
       return a >= today;
     });
