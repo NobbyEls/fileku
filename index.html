@@ -903,16 +903,21 @@ function renderProgCards(){
     grid.innerHTML='<div style="grid-column:1/-1"><div class="empty-state"><div class="ico">&#128203;</div>Tidak ada program ditemukan</div></div>';return;
   }
   grid.innerHTML=progs.map(p=>{
-    // PATCH: cocokkan SKU lalu evaluasi ulang status SN khusus periode program ini
-    // v2.3: filter by tglJual + deduplicate SN
-    const sns=deduplicateBySN(allHasil
-      .filter(r=>p.skuArray.includes(r.kodeBarang.toUpperCase()))
-      .map(r=>deriveRowForProgram(r,p))
-      .filter(r=>r!==null));
+    // v2.3: Match berdasarkan program yang di-assign backend + deduplicate SN
+    // SN masuk program ini jika field "program" cocok ATAU SKU cocok & tgl jual dalam periode
+    const sns=deduplicateBySN(allHasil.filter(r=>{
+      // Match 1: backend sudah assign ke program ini (paling akurat)
+      if(String(r.program||'').indexOf(p.nama)>=0) return true;
+      // Match 2: SKU cocok (untuk SN tanpa program / tidak ditemukan)
+      if(p.skuArray.indexOf(r.kodeBarang.toUpperCase())>=0){
+        // Cek tgl jual masuk periode
+        return snInProgramPeriod(r,p);
+      }
+      return false;
+    }));
     const total=sns.length;
     const _up=function(r){return String(r.status||'').toUpperCase();};
     const valid=sns.filter(r=>_up(r).indexOf('VALID')>=0).length;
-    const diluar=sns.filter(r=>_up(r).indexOf('DILUAR')>=0).length;
     const ditolak=sns.filter(r=>_up(r).indexOf('DITOLAK')>=0||_up(r).indexOf('TIDAK')>=0).length;
     const totalRebate=sns.filter(r=>_up(r).indexOf('VALID')>=0).reduce((s,r)=>s+(Number(r.rebate)||0),0);
     const pct=total>0?Math.round(valid/total*100):0;
@@ -964,12 +969,14 @@ function filterProgCards(){
 // ── DRAWER (program detail) ──
 function openDrawer(progId){
   const prog=allPrograms.find(p=>p.id==progId);if(!prog)return;
-  // PATCH: evaluasi ulang status SN khusus periode program ini
-  // v2.3: filter by tglJual + deduplicate SN
-  drawerSNs=deduplicateBySN(allHasil
-    .filter(r=>prog.skuArray.includes(r.kodeBarang.toUpperCase()))
-    .map(r=>deriveRowForProgram(r,prog))
-    .filter(r=>r!==null));
+  // v2.3: Match berdasarkan program yang di-assign backend + deduplicate SN
+  drawerSNs=deduplicateBySN(allHasil.filter(r=>{
+    if(String(r.program||'').indexOf(prog.nama)>=0) return true;
+    if(prog.skuArray.indexOf(r.kodeBarang.toUpperCase())>=0){
+      return snInProgramPeriod(r,prog);
+    }
+    return false;
+  }));
   document.getElementById('drawer-title').textContent='Detail: '+prog.nama;
   document.getElementById('drawer-brand-badge').className='badge b-'+prog.brand.toLowerCase();
   document.getElementById('drawer-brand-badge').textContent=prog.brand;
