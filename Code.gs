@@ -1,0 +1,770 @@
+/**
+ * ============================================================
+ * REBATE VALIDATOR v2 — Code.gs  (Google Apps Script)
+ * Validasi Serial Number berbasis SKU + Web App Interface
+ * Brand: ACER | ASUS | LENOVO | HP
+ * ============================================================
+ * PERUBAHAN v2.1:
+ *  - _getAllActivePrograms(): program yang tgl akhirnya sudah
+ *    lewat dari hari ini otomatis dianggap NON-AKTIF (tidak ikut
+ *    validasi & tidak muncul di Dashboard "Program Aktif").
+ * ============================================================
+ * CARA INSTALL:
+ *  1. Buka Google Sheet baru
+ *  2. Extensions → Apps Script
+ *  3. Hapus semua kode default, paste seluruh file ini sebagai Code.gs
+ *  4. Buat file baru bernama "index" (tipe HTML), paste isi index.html
+ *  5. Save → Deploy → New Deployment → Web App
+ *     • Execute as: Me
+ *     • Who has access: Anyone (or your org)
+ *  6. Salin URL deployment, buka di browser
+ * ============================================================
+ */
+
+// ============================================================
+//  KONFIGURASI KOLOM — sesuaikan jika struktur file berubah
+// ============================================================
+const CFG = {
+
+  SHEET: {
+    SETTING:   '⚙️ SETTING',
+    PENJUALAN: '📦 Data Penjualan',
+    ACER:      '📋 Acer Data',
+    ASUS:      '📋 Asus Data',
+    LENOVO:    '📋 Lenovo Data',
+    HP:        '📋 HP Data',
+    HASIL:     '✅ Hasil Validasi',
+    SUMMARY:   '📊 Summary Rebate',
+  },
+
+  // Data Penjualan / POS  (1-indexed, kolom A=1)
+  POS: {
+    TANGGAL:   1,   // A
+    NO_DOK:    3,   // C
+    PELANGGAN: 5,   // E
+    CABANG:    7,   // G
+    KODE_BRNG: 11,  // K  ← kunci pencocokan SKU
+    NAMA_BRNG: 13,  // M
+    SALES:     15,  // O
+    QTY:       17,  // Q
+    HARGA:     19,  // S
+    SERIAL:    21,  // U  ← serial number utama
+  },
+
+  // Verifikasi ACER
+  ACER: { SERIAL: 13, TGL_INVOICE: 10, NO_INVOICE: 11, MODEL: 15 },
+
+  // Verifikasi ASUS
+  ASUS: { SERIAL: 14, STATUS_KOM: 15, TGL_AKTIF: 11, MODEL: 8 },
+
+  // Verifikasi LENOVO
+  LENOVO: { SERIAL: 3, STATUS: 5, TGL_DITERIMA: 8, MTM: 9, PRODUK: 10 },
+
+  // Verifikasi HP (kolom A–AZ, total 52 kolom)
+  //   AB (28) = Serial Number
+  //   AN (40) = SO Validation  → valid jika mengandung "valid"
+  //   Y  (25) = Invoice Date   → untuk cek periode program
+  //   K  (11) = SKU No
+  //   L  (12) = SKU Name
+  HP: { SERIAL: 28, STATUS_KOM: 40, TGL_INVOICE: 25, SKU_NO: 11, SKU_NAME: 12 },
+
+  // Sheet Setting — struktur baris program
+  SETTING: {
+    START_ROW: 3,  // baris data mulai (baris 1=judul, 2=header)
+    ID_PROG:   1,
+    NAMA_PROG: 2,
+    BRAND:     3,
+    SKU_LIST:  4,  // Kode Barang dipisah koma
+    TGL_MULAI: 5,
+    TGL_AKHIR: 6,
+    REBATE:    7,
+    AKTIF:     8,
+    KET:       9,
+  },
+};
+
+const STATUS = {
+  VALID:           '✅ VALID',
+  TIDAK_DITEMUKAN: '❌ TIDAK DITEMUKAN',
+  DITOLAK:         '❌ DITOLAK BRAND',
+  DILUAR_PERIODE:  '⚠️ DILUAR PERIODE',
+};
+
+
+// ============================================================
+//  WEB APP ENTRY POINT
+// ============================================================
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle('Rebate Validator')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+
+// ============================================================
+//  SERVER FUNCTIONS — dipanggil oleh Web App (google.script.run)
+//  Semua return JSON string agar aman lintas serialisasi
+// ============================================================
+
+/** Ringkasan untuk halaman Dashboard */
+function getDashboardData() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Jumlah baris per sheet brand
+    const brandRows = {};
+    ['ACER','ASUS','LENOVO','HP'].forEach(b => {
+      const s = ss.getSheetByName(CFG.SHEET[b]);
+      brandRows[b] = s ? Math.max(0, s.getLastRow() - 1) : 0;
+    });
+
+    const posSheet = ss.getSheetByName(CFG.SHEET.PENJUALAN);
+    const posRows  = posSheet ? Math.max(0, posSheet.getLastRow() - 1) : 0;
+
+    // Agregasi hasil validasi
+    const hs = ss.getSheetByName(CFG.SHEET.HASIL);
+    const summary = { total:0, valid:0, diluar:0, ditolak:0, tidakDitemukan:0, totalRebate:0 };
+    if (hs && hs.getLastRow() > 1) {
+      hs.getRange(2, 1, hs.getLastRow()-1, 15).getValues().forEach(r => {
+        if (!r[0]) return;
+        summary.total++;
+        const st = r[8].toString();
+        const rb = Number(r[12]) || 0;
+        if (st === STATUS.VALID)             { summary.valid++;          summary.totalRebate += rb; }
+        else if (st === STATUS.DILUAR_PERIODE)  summary.diluar++;
+        else if (st === STATUS.DITOLAK)         summary.ditolak++;
+        else if (st === STATUS.TIDAK_DITEMUKAN) summary.tidakDitemukan++;
+      });
+    }
+
+    const programs = _getAllActivePrograms().map(p => ({
+      id: p.id, nama: p.nama, brand: p.brand,
+      skuCount: p.skuList.length,
+      periode: `${_fmt(p.mulai)} – ${_fmt(p.akhir)}`,
+      rebate: p.rebate,
+    }));
+
+    return JSON.stringify({ ok:true, posRows, brandRows, summary, programs });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/** Info jumlah baris tiap sheet (untuk tab Upload) */
+function getBrandDataInfo() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const info = {};
+    ['ACER','ASUS','LENOVO','HP'].forEach(b => {
+      const s = ss.getSheetByName(CFG.SHEET[b]);
+      info[b] = { rows: s ? Math.max(0, s.getLastRow()-1) : 0 };
+    });
+    const ps = ss.getSheetByName(CFG.SHEET.PENJUALAN);
+    info.POS = { rows: ps ? Math.max(0, ps.getLastRow()-1) : 0 };
+    return JSON.stringify({ ok:true, info });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/** Seluruh baris Hasil Validasi */
+function getHasilValidasiData() {
+  try {
+    const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.HASIL);
+    if (!s || s.getLastRow() < 2) return JSON.stringify({ ok:true, rows:[] });
+
+    const rows = s.getRange(2, 1, s.getLastRow()-1, 15).getValues()
+      .filter(r => r[0])
+      .map(r => ({
+        no:         r[0],
+        tglJual:    r[1] instanceof Date ? _fmt(r[1]) : r[1],
+        noDok:      r[2],
+        brand:      r[3],
+        kodeBarang: r[4],
+        namaBarang: r[5],
+        snToko:     r[6],
+        snBrand:    r[7],
+        status:     r[8],
+        tglBrand:   r[9] instanceof Date ? _fmt(r[9]) : (r[9] || ''),
+        program:    r[10],
+        periode:    r[11],
+        rebate:     r[12],
+        keterangan: r[13],
+      }));
+
+    return JSON.stringify({ ok:true, rows });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/** Semua baris dari sheet Setting */
+function getProgramSettings() {
+  try {
+    const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.SETTING);
+    const c = CFG.SETTING;
+    if (!s || s.getLastRow() < c.START_ROW) return JSON.stringify({ ok:true, rows:[] });
+
+    const numRows = s.getLastRow() - c.START_ROW + 1;
+    const rows = s.getRange(c.START_ROW, 1, numRows, 9).getValues()
+      .filter(r => r[0])
+      .map((r, i) => ({
+        rowIndex: i + 1,
+        id:        r[c.ID_PROG-1],
+        nama:      r[c.NAMA_PROG-1],
+        brand:     r[c.BRAND-1],
+        skuList:   r[c.SKU_LIST-1],
+        tglMulai:  r[c.TGL_MULAI-1] instanceof Date ? _fmt(r[c.TGL_MULAI-1]) : r[c.TGL_MULAI-1],
+        tglAkhir:  r[c.TGL_AKHIR-1] instanceof Date ? _fmt(r[c.TGL_AKHIR-1]) : r[c.TGL_AKHIR-1],
+        rebate:    r[c.REBATE-1],
+        aktif:     r[c.AKTIF-1],
+        ket:       r[c.KET-1],
+      }));
+
+    return JSON.stringify({ ok:true, rows });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/** Simpan atau update satu program */
+function saveProgram(programJson) {
+  try {
+    const prog = JSON.parse(programJson);
+    const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.SETTING);
+    const c = CFG.SETTING;
+
+    const row = [
+      prog.id || ('PRG-' + prog.brand + '-' + Date.now()),
+      prog.nama,
+      prog.brand.toUpperCase(),
+      prog.skuList,
+      _parseDDMMYYYY(prog.tglMulai),
+      _parseDDMMYYYY(prog.tglAkhir),
+      Number(prog.rebate) || 0,
+      prog.aktif,
+      prog.ket || '',
+    ];
+
+    let targetRow;
+    if (prog.rowIndex) {
+      targetRow = prog.rowIndex + c.START_ROW - 1;
+      s.getRange(targetRow, 1, 1, 9).setValues([row]);
+    } else {
+      s.appendRow(row);
+      targetRow = s.getLastRow();
+    }
+
+    s.getRange(targetRow, c.TGL_MULAI, 1, 2).setNumberFormat('DD/MM/YYYY');
+    s.getRange(targetRow, c.REBATE,   1, 1).setNumberFormat('Rp #,##0');
+
+    return JSON.stringify({ ok:true });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/** Hapus program berdasarkan ID */
+function deleteProgram(programId) {
+  try {
+    const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.SETTING);
+    const c = CFG.SETTING;
+    const data = s.getRange(c.START_ROW, 1, Math.max(1, s.getLastRow()-c.START_ROW+1), 1).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0].toString() === programId.toString()) {
+        s.deleteRow(i + c.START_ROW);
+        return JSON.stringify({ ok:true });
+      }
+    }
+    return JSON.stringify({ ok:false, error:'Program tidak ditemukan' });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/**
+ * Upload data verifikasi brand — rows adalah array-of-arrays dari CSV/XLSX
+ * brand: 'ACER' | 'ASUS' | 'LENOVO' | 'HP'
+ *
+ * FIX: normalisasi semua baris ke panjang kolom maksimum sebelum setValues.
+ * Brand files sering punya baris dengan jumlah kolom berbeda (trailing empty
+ * cells tidak di-include SheetJS), sehingga setValues gagal tanpa normalisasi.
+ * HP: file sampai kolom AZ (52 kolom) — normalisasi otomatis menanganinya.
+ */
+function uploadBrandData(brand, rows) {
+  try {
+    const sheetMap = {
+      ACER:   CFG.SHEET.ACER,
+      ASUS:   CFG.SHEET.ASUS,
+      LENOVO: CFG.SHEET.LENOVO,
+      HP:     CFG.SHEET.HP,      // ← tambahan HP
+    };
+    const sheetName = sheetMap[brand.toUpperCase()];
+    if (!sheetName) return JSON.stringify({ ok:false, error:'Brand tidak valid' });
+    if (!rows || rows.length === 0) return JSON.stringify({ ok:true, rowsAdded:0 });
+
+    // Cari jumlah kolom terbanyak dari semua baris
+    const maxCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+    // Pad tiap baris ke panjang yang sama
+    const normalized = rows.map(r => {
+      const p = r.slice();
+      while (p.length < maxCols) p.push('');
+      return p;
+    });
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let s = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+    s.clearContents();
+    s.getRange(1, 1, normalized.length, maxCols).setValues(normalized);
+    s.getRange(1, 1, 1, maxCols).setFontWeight('bold').setBackground('#e8eaed');
+
+    return JSON.stringify({ ok:true, rowsAdded: normalized.length - 1 });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/** Upload data POS — normalisasi kolom sama seperti brand upload */
+function uploadPosData(rows) {
+  try {
+    if (!rows || rows.length === 0) return JSON.stringify({ ok:true, rowsAdded:0 });
+
+    const maxCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+    const normalized = rows.map(r => {
+      const p = r.slice();
+      while (p.length < maxCols) p.push('');
+      return p;
+    });
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let s = ss.getSheetByName(CFG.SHEET.PENJUALAN) || ss.insertSheet(CFG.SHEET.PENJUALAN);
+    s.clearContents();
+    s.getRange(1, 1, normalized.length, maxCols).setValues(normalized);
+    s.getRange(1, 1, 1, maxCols).setFontWeight('bold').setBackground('#e8eaed');
+
+    return JSON.stringify({ ok:true, rowsAdded: normalized.length - 1 });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/** Jalankan validasi dari Web App */
+function runValidasiServer() {
+  try {
+    clearHasil();
+    const count = _runValidasi();
+    buatSummary();
+    return JSON.stringify({ ok:true, count });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+/** Hapus hasil validasi dari Web App */
+function clearHasilServer() {
+  try { clearHasil(); return JSON.stringify({ ok:true }); }
+  catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+
+// ============================================================
+//  MENU (akses dari Google Sheet)
+// ============================================================
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('🔧 Rebate Tools')
+    .addItem('📋 Setup Sheet', 'setupSheets')
+    .addItem('▶️  Validasi Semua', 'runAll')
+    .addItem('📊 Refresh Summary', 'buatSummary')
+    .addItem('🗑️  Hapus Hasil', 'clearHasil')
+    .addToUi();
+}
+
+function setupSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  for (const name of Object.values(CFG.SHEET)) {
+    if (!ss.getSheetByName(name)) ss.insertSheet(name);
+  }
+  _setupSetting(ss);
+  _setupHasil(ss);
+  SpreadsheetApp.getUi().alert('Setup selesai. Silakan deploy sebagai Web App untuk mengakses antarmuka upload & validasi.');
+}
+
+function _setupSetting(ss) {
+  const s = ss.getSheetByName(CFG.SHEET.SETTING);
+  s.clearContents().clearFormats();
+  s.getRange('A1').setValue('KONFIGURASI PROGRAM REBATE — BERBASIS SKU')
+    .setFontWeight('bold').setFontSize(14);
+
+  const hdr = [
+    'ID Program','Nama Program','Brand','SKU List (pisah koma)',
+    'Tgl Mulai','Tgl Akhir','Rebate/Unit (Rp)','Aktif (YES/NO)','Keterangan'
+  ];
+  s.getRange(2, 1, 1, hdr.length)
+    .setValues([hdr]).setFontWeight('bold')
+    .setBackground('#1a73e8').setFontColor('#fff');
+
+  const y = new Date().getFullYear();
+  const sample = [
+    ['PRG-ACER-2026Q2','Acer A715 Promo','ACER',
+     'NB-AC-A715-59G-516G, NB-AC-AG14-71M-5471',
+     new Date(y,3,1), new Date(y,5,30), 75000,'YES',''],
+    ['PRG-ASUS-2026H1','Asus Vivobook Promo','ASUS',
+     'NB-AS-X1504VA-NJ, NB-AS-M1503IA-EJ',
+     new Date(y,0,1), new Date(y,5,30), 50000,'YES',''],
+    ['PRG-LNVO-2026','Lenovo IdeaPad Rebate','LENOVO',
+     'NB-LN-IDEAPAD-3-15, NB-LN-LEGION-5-15',
+     new Date(y,0,1), new Date(y,11,31), 60000,'YES',''],
+    ['PRG-HP-2026H1','HP Laptop Mainstream Promo','HP',
+     'BD0X9PA#AR6, 6D0M1PA#AR6',
+     new Date(y,0,1), new Date(y,5,30), 55000,'YES',
+     'SKU No dari kolom K file HP (format: BD0X9PA#AR6)'],
+  ];
+  s.getRange(3, 1, sample.length, hdr.length).setValues(sample);
+  s.getRange(3, 5, sample.length, 2).setNumberFormat('DD/MM/YYYY');
+  s.getRange(3, 7, sample.length, 1).setNumberFormat('Rp #,##0');
+  s.autoResizeColumns(1, hdr.length);
+  s.setFrozenRows(2);
+}
+
+function _setupHasil(ss) {
+  const s = ss.getSheetByName(CFG.SHEET.HASIL);
+  if (s.getLastRow() > 0) return;
+  const hdr = [
+    'No','Tgl Jual','No. Dok','Brand','Kode Barang','Nama Barang',
+    'SN Toko','SN Brand','Status Validasi','Tgl di Brand',
+    'Program','Periode','Rebate/Unit','Keterangan','Tgl Proses'
+  ];
+  s.getRange(1,1,1,hdr.length).setValues([hdr])
+    .setFontWeight('bold').setBackground('#34a853').setFontColor('#fff');
+  s.setFrozenRows(1);
+}
+
+
+// ============================================================
+//  VALIDATION ENGINE — berbasis SKU (bukan brand)
+// ============================================================
+
+function runAll() {
+  clearHasil();
+  _runValidasi();
+  buatSummary();
+  SpreadsheetApp.getUi().alert('✅ Validasi selesai!');
+}
+
+function clearHasil() {
+  const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.HASIL);
+  if (s && s.getLastRow() > 1)
+    s.getRange(2, 1, s.getLastRow()-1, s.getLastColumn())
+      .clearContent().setBackground(null);
+}
+
+function _runValidasi() {
+  const programs = _getAllActivePrograms();
+  if (!programs.length) throw new Error('Tidak ada program aktif di sheet ⚙️ SETTING');
+
+  const posData = _getAllPenjualan();
+  if (!posData.length) throw new Error('Sheet 📦 Data Penjualan kosong');
+
+  // Bangun peta SKU → [program...] untuk lookup O(1)
+  const skuMap = {};
+  programs.forEach(p => {
+    p.skuList.forEach(sku => {
+      const k = sku.toUpperCase();
+      (skuMap[k] = skuMap[k] || []).push(p);
+    });
+  });
+
+  // Bangun peta brand → verifikasi map (hanya brand yg dibutuhkan)
+  const brandsNeeded = new Set(programs.map(p => p.brand));
+  const brandMaps = {};
+  brandsNeeded.forEach(b => { brandMaps[b] = _buildBrandMap(b); });
+
+  const results = [];
+
+  posData.forEach(item => {
+    const skuKey = item.kodeBarang.toUpperCase().trim();
+    const matchProgs = skuMap[skuKey];
+    if (!matchProgs) return; // SKU tidak masuk program manapun — lewat
+
+    const brand    = matchProgs[0].brand;
+    const brandMap = brandMaps[brand] || {};
+
+    // Kunci SN: Lenovo pakai 8 digit terakhir
+    const snRaw = item.serial.toUpperCase();
+    const snKey = brand === 'LENOVO'
+      ? (snRaw.length >= 8 ? snRaw.slice(-8) : snRaw)
+      : snRaw;
+
+    const bRow = brandMap[snKey];
+
+    if (!bRow) {
+      results.push(_baris(results.length+1, item, brand, snRaw,
+        STATUS.TIDAK_DITEMUKAN, null, null, 0,
+        `SN tidak ada di data ${brand} | SKU: ${skuKey}`));
+      return;
+    }
+
+    // Validasi status khusus per brand
+    if (brand === 'ASUS' && !bRow.comment.toLowerCase().includes('point is valid')) {
+      results.push(_baris(results.length+1, item, brand, snRaw,
+        STATUS.DITOLAK, null, null, 0, `Status Asus: "${bRow.comment}"`));
+      return;
+    }
+    if (brand === 'HP' && !bRow.comment.toLowerCase().includes('valid')) {
+      results.push(_baris(results.length+1, item, brand, snRaw,
+        STATUS.DITOLAK, null, null, 0, `SO Validation HP: "${bRow.comment}"`));
+      return;
+    }
+    if (brand === 'LENOVO' && bRow.status.toUpperCase().includes('DITOLAK')) {
+      results.push(_baris(results.length+1, item, brand, bRow.snFull || snRaw,
+        STATUS.DITOLAK, null, null, 0, `Status Lenovo: "${bRow.status}"`));
+      return;
+    }
+
+    const tglBrand = _getBrandDate(brand, bRow);
+
+    // Cek periode — ambil program pertama yang cocok
+    let validProg = null;
+    for (const p of matchProgs) {
+      if (_inPeriode(tglBrand, p)) { validProg = p; break; }
+    }
+
+    const snDisplay = brand === 'LENOVO' ? (bRow.snFull || snRaw) : snRaw;
+
+    if (!validProg) {
+      results.push(_baris(results.length+1, item, brand, snDisplay,
+        STATUS.DILUAR_PERIODE, tglBrand, null, 0,
+        `Tgl brand ${_fmt(tglBrand)} di luar periode | SKU: ${skuKey}`));
+      return;
+    }
+
+    results.push(_baris(results.length+1, item, brand, snDisplay,
+      STATUS.VALID, tglBrand, validProg, validProg.rebate,
+      `SKU: ${skuKey}`));
+  });
+
+  _tulisHasil(results);
+  return results.length;
+}
+
+// ── Load semua program aktif dari Setting ──────────────────
+// PERUBAHAN v2.1: program yang tgl akhirnya sudah lewat dari hari
+// ini otomatis dianggap NON-AKTIF (di-skip), walau kolom Aktif=YES.
+function _getAllActivePrograms() {
+  const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.SETTING);
+  const c = CFG.SETTING;
+  if (!s || s.getLastRow() < c.START_ROW) return [];
+  const n = s.getLastRow() - c.START_ROW + 1;
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  return s.getRange(c.START_ROW, 1, n, 9).getValues()
+    .filter(r => r[0] && r[c.AKTIF-1].toString().toUpperCase() === 'YES')
+    .map(r => ({
+      id:      r[c.ID_PROG-1],
+      nama:    r[c.NAMA_PROG-1],
+      brand:   r[c.BRAND-1].toString().toUpperCase(),
+      skuList: r[c.SKU_LIST-1].toString().split(',').map(s => s.trim()).filter(Boolean),
+      mulai:   _toDate(r[c.TGL_MULAI-1]),
+      akhir:   _toDate(r[c.TGL_AKHIR-1]),
+      rebate:  Number(r[c.REBATE-1]) || 0,
+      ket:     r[c.KET-1],
+    }))
+    // Filter program kadaluarsa: tgl akhir < hari ini → otomatis non-aktif
+    .filter(p => {
+      const a = p.akhir;
+      if (!a) return true;            // tanpa tgl akhir → biarkan aktif
+      a.setHours(23, 59, 59, 999);
+      return a >= today;
+    });
+}
+
+// ── Load semua POS data ────────────────────────────────────
+function _getAllPenjualan() {
+  const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.PENJUALAN);
+  if (!s || s.getLastRow() < 2) return [];
+  const c = CFG.POS;
+  return s.getRange(2, 1, s.getLastRow()-1, 25).getValues()
+    .filter(r => r[c.SERIAL-1].toString().trim())
+    .map(r => ({
+      tanggal:    r[c.TANGGAL-1],
+      noDok:      r[c.NO_DOK-1],
+      kodeBarang: r[c.KODE_BRNG-1].toString().trim(),
+      namaBarang: r[c.NAMA_BRNG-1],
+      serial:     r[c.SERIAL-1].toString().trim(),
+    }));
+}
+
+// ── Bangun lookup map verifikasi per brand ─────────────────
+// FIX: safe access pakai _col() agar baris Lenovo yang cuma punya
+//      5 kolom berisi isinya tidak throw undefined error.
+// HP file sampai kolom AZ (52 kolom) sehingga baca semua kolom.
+function _buildBrandMap(brand) {
+  const sheetMap = {
+    ACER:CFG.SHEET.ACER, ASUS:CFG.SHEET.ASUS,
+    LENOVO:CFG.SHEET.LENOVO, HP:CFG.SHEET.HP,
+  };
+  const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetMap[brand]);
+  if (!s || s.getLastRow() < 2) return {};
+
+  // Baca semua kolom yang ada di sheet (HP butuh s/d kolom 52)
+  const numCols = s.getLastColumn() || 1;
+  const data = s.getRange(2, 1, s.getLastRow()-1, numCols).getValues();
+  const map  = {};
+  const c    = CFG[brand];
+
+  // Helper: ambil nilai kolom ke-idx (1-based) dengan fallback ''
+  const _col = (row, idx) => idx >= 1 && row.length >= idx ? row[idx-1] : '';
+
+  data.forEach(row => {
+    if (brand === 'ACER') {
+      const sn = _col(row, c.SERIAL).toString().trim().toUpperCase();
+      if (!sn) return;
+      map[sn] = {
+        tgl:       _col(row, c.TGL_INVOICE) || null,
+        noInvoice: _col(row, c.NO_INVOICE).toString(),
+        model:     _col(row, c.MODEL).toString(),
+      };
+
+    } else if (brand === 'ASUS') {
+      const sn = _col(row, c.SERIAL).toString().trim().toUpperCase();
+      if (!sn) return;
+      map[sn] = {
+        comment:  _col(row, c.STATUS_KOM).toString(),
+        tglAktif: _col(row, c.TGL_AKTIF) || null,
+        model:    _col(row, c.MODEL).toString(),
+      };
+
+    } else if (brand === 'LENOVO') {
+      const snFull = _col(row, c.SERIAL).toString().trim().toUpperCase();
+      if (!snFull) return;
+      const key = snFull.length >= 8 ? snFull.slice(-8) : snFull;
+      map[key] = {
+        snFull,
+        status:      _col(row, c.STATUS).toString(),
+        tglDiterima: _col(row, c.TGL_DITERIMA) || null,
+        mtm:         _col(row, c.MTM).toString(),
+        produk:      _col(row, c.PRODUK).toString(),
+      };
+
+    } else if (brand === 'HP') {
+      // Serial Number di kolom AB (28), SO Validation di kolom AN (40)
+      const sn = _col(row, c.SERIAL).toString().trim().toUpperCase();
+      if (!sn) return;
+      map[sn] = {
+        comment:    _col(row, c.STATUS_KOM).toString(),  // SO Validation
+        tglInvoice: _col(row, c.TGL_INVOICE) || null,    // Invoice Date
+        skuNo:      _col(row, c.SKU_NO).toString(),
+        skuName:    _col(row, c.SKU_NAME).toString(),
+      };
+    }
+  });
+  return map;
+}
+
+function _getBrandDate(brand, bRow) {
+  if (brand === 'ACER')   return _toDate(bRow.tgl);
+  if (brand === 'ASUS')   return _toDate(bRow.tglAktif);
+  if (brand === 'LENOVO') return _toDate(bRow.tglDiterima);
+  if (brand === 'HP')     return _toDate(bRow.tglInvoice);
+  return null;
+}
+
+function _inPeriode(tgl, prog) {
+  const d = _toDate(tgl);
+  if (!d) return false;
+  d.setHours(12, 0, 0, 0);
+  const mulai = new Date(prog.mulai); mulai.setHours(0,  0,  0,   0);
+  const akhir  = new Date(prog.akhir);  akhir.setHours(23, 59, 59, 999);
+  return d >= mulai && d <= akhir;
+}
+
+
+// ============================================================
+//  SUMMARY REBATE
+// ============================================================
+
+function buatSummary() {
+  const ss   = SpreadsheetApp.getActiveSpreadsheet();
+  const hs   = ss.getSheetByName(CFG.SHEET.HASIL);
+  const sums = ss.getSheetByName(CFG.SHEET.SUMMARY);
+  if (!hs || hs.getLastRow() < 2) return;
+
+  const data = hs.getRange(2, 1, hs.getLastRow()-1, 15).getValues();
+  const agg  = {};
+
+  data.forEach(r => {
+    const brand = r[3].toString().trim();
+    const prog  = r[10].toString().trim();
+    if (!brand || !prog) return;
+    const key = `${brand}||${prog}`;
+    if (!agg[key]) agg[key] = { brand, prog, periode:r[11], valid:0, diluar:0, ditolak:0, tidakDitemukan:0, totalRebate:0 };
+    const a = agg[key];
+    const st = r[8].toString();
+    const rb = Number(r[12]) || 0;
+    if (st === STATUS.VALID)             { a.valid++; a.totalRebate += rb; }
+    else if (st === STATUS.DILUAR_PERIODE)  a.diluar++;
+    else if (st === STATUS.DITOLAK)         a.ditolak++;
+    else if (st === STATUS.TIDAK_DITEMUKAN) a.tidakDitemukan++;
+  });
+
+  sums.clearContents().clearFormats();
+  sums.getRange('A1').setValue('📊 SUMMARY  —  ' + _fmt(new Date())).setFontWeight('bold').setFontSize(14);
+  const hdr = ['Brand','Program','Periode','Valid','Di Luar Periode','Ditolak','Tidak Ditemukan','Total Unit Valid','Total Rebate (Rp)'];
+  sums.getRange(3,1,1,hdr.length).setValues([hdr]).setFontWeight('bold').setBackground('#1a73e8').setFontColor('#fff');
+
+  const dRows = Object.values(agg).map(a =>
+    [a.brand, a.prog, a.periode, a.valid, a.diluar, a.ditolak, a.tidakDitemukan, a.valid, a.totalRebate]);
+
+  if (dRows.length) {
+    const SR = 4;
+    sums.getRange(SR, 1, dRows.length, hdr.length).setValues(dRows);
+    sums.getRange(SR, 9, dRows.length, 1).setNumberFormat('Rp #,##0');
+    const bgMap = { ACER:'#e8f0fe', ASUS:'#fce8e6', LENOVO:'#e6f4ea' };
+    dRows.forEach((r,i) => sums.getRange(SR+i,1,1,hdr.length).setBackground(bgMap[r[0]]||'#f8f9fa'));
+    const TR = SR + dRows.length + 1;
+    sums.getRange(TR,1).setValue('GRAND TOTAL').setFontWeight('bold');
+    sums.getRange(TR,4).setFormula(`=SUM(D${SR}:D${SR+dRows.length-1})`).setFontWeight('bold');
+    sums.getRange(TR,8).setFormula(`=SUM(H${SR}:H${SR+dRows.length-1})`).setFontWeight('bold');
+    sums.getRange(TR,9).setFormula(`=SUM(I${SR}:I${SR+dRows.length-1})`).setNumberFormat('Rp #,##0').setFontWeight('bold').setBackground('#fbbc04');
+  }
+  sums.autoResizeColumns(1, hdr.length);
+}
+
+
+// ============================================================
+//  HELPERS
+// ============================================================
+
+function _baris(no, item, brand, snBrand, status, tglBrand, prog, rebate, ket) {
+  return [
+    no, item.tanggal, item.noDok, brand,
+    item.kodeBarang, item.namaBarang,
+    item.serial, snBrand, status,
+    tglBrand || '',
+    prog ? prog.nama : '',
+    prog ? `${_fmt(prog.mulai)} – ${_fmt(prog.akhir)}` : '',
+    rebate || 0, ket || '', new Date(),
+  ];
+}
+
+function _tulisHasil(rows) {
+  if (!rows.length) return;
+  const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.HASIL);
+  const sr = s.getLastRow() + 1;
+  s.getRange(sr, 1, rows.length, rows[0].length).setValues(rows);
+  s.getRange(sr, 2,  rows.length, 1).setNumberFormat('DD/MM/YYYY');
+  s.getRange(sr, 10, rows.length, 1).setNumberFormat('DD/MM/YYYY');
+  s.getRange(sr, 13, rows.length, 1).setNumberFormat('Rp #,##0');
+  s.getRange(sr, 15, rows.length, 1).setNumberFormat('DD/MM/YYYY HH:mm');
+  rows.forEach((r,i) => {
+    const bg = r[8] === STATUS.VALID ? '#e6f4ea'
+             : r[8] === STATUS.DILUAR_PERIODE ? '#fef9c3' : '#fce8e6';
+    s.getRange(sr+i, 1, 1, r.length).setBackground(bg);
+  });
+}
+
+function _toDate(val) {
+  if (!val) return null;
+  if (val instanceof Date) return new Date(val);
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function _fmt(d) {
+  const dt = _toDate(d);
+  if (!dt) return '-';
+  return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`;
+}
+
+function _parseDDMMYYYY(str) {
+  if (!str) return null;
+  if (str instanceof Date) return str;
+  const p = str.includes('/') ? str.split('/') : str.split('-').reverse();
+  return p.length === 3 ? new Date(+p[2], +p[1]-1, +p[0]) : new Date(str);
+}

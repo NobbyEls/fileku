@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rebate Validator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#07080f;--bg2:#0d1020;
+  --glass:rgba(255,255,255,0.04);--glass2:rgba(255,255,255,0.07);
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
+  --text:#e8ecff;--text2:#8894b4;--text3:#4b5678;
+  --blue:#4f9cf9;--blue-dim:rgba(79,156,249,0.18);--blue-glow:rgba(79,156,249,0.35);
+  --purple:#9b7cf8;--cyan:#22d3ee;
+  --green:#34d399;--green-dim:rgba(52,211,153,0.15);
+  --amber:#fbbf24;--amber-dim:rgba(251,191,36,0.15);
+  --red:#f87171;--red-dim:rgba(248,113,113,0.15);
+  --acer-c:#4f9cf9;--asus-c:#f87171;--lenovo-c:#34d399;--pos-c:#9b7cf8;
+  --hp-c:#0096d6;
+  --r:12px;--r2:8px;--r3:20px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-size:14px;line-height:1.6;color:var(--text);background:var(--bg);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;z-index:0;
+  background:radial-gradient(ellipse 65% 55% at 10% 20%,rgba(79,70,229,.14) 0%,transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 8%,rgba(6,182,212,.09) 0%,transparent 55%),
+    radial-gradient(ellipse 40% 60% at 60% 95%,rgba(139,92,246,.08) 0%,transparent 50%);
+  pointer-events:none}
+body::after{content:'';position:fixed;inset:0;z-index:0;
+  background-image:radial-gradient(circle,rgba(255,255,255,.022) 1px,transparent 1px);
+  background-size:28px 28px;pointer-events:none}
+
+/* HEADER */
+header{position:sticky;top:0;z-index:200;background:rgba(7,8,15,.88);backdrop-filter:blur(24px);
+  border-bottom:1px solid var(--border);display:flex;align-items:center;height:56px;padding:0 12px;
+  box-shadow:0 1px 0 rgba(255,255,255,.04),0 8px 32px rgba(0,0,0,.4)}
+.logo{font-size:16px;font-weight:700;padding:0 14px;white-space:nowrap;letter-spacing:-.3px;flex-shrink:0;
+  background:linear-gradient(120deg,var(--blue) 0%,var(--purple) 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.tabs{display:flex;gap:3px;overflow-x:auto;padding:0 4px}
+.tab-btn{padding:6px 14px;border:none;background:none;cursor:pointer;color:var(--text2);
+  font-size:13px;font-weight:500;white-space:nowrap;border-radius:var(--r3);
+  font-family:inherit;transition:all .18s}
+.tab-btn:hover{color:var(--text);background:var(--glass2)}
+.tab-btn.active{color:var(--blue);background:var(--blue-dim);
+  box-shadow:0 0 0 1px rgba(79,156,249,.25),inset 0 1px 0 rgba(255,255,255,.06)}
+
+/* LAYOUT */
+main{position:relative;z-index:1;padding:16px 20px;max-width:100%;margin:0 auto}
+.pane{display:none}.pane.active{display:block;animation:fadeUp .22s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* PANEL */
+.panel{background:var(--glass);border:1px solid var(--border);border-radius:var(--r);
+  padding:20px;margin-bottom:16px;position:relative;overflow:hidden;backdrop-filter:blur(12px)}
+.panel::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent)}
+.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;
+  color:var(--text2);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.section-title::before{content:'';display:block;width:3px;height:14px;border-radius:2px;flex-shrink:0;
+  background:linear-gradient(180deg,var(--blue),var(--purple))}
+
+/* CARDS */
+.card-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--glass);border:1px solid var(--border);border-radius:var(--r);padding:18px 16px;
+  position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s;backdrop-filter:blur(12px)}
+.card:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.4);border-color:var(--border2)}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.card.c-blue::before{background:linear-gradient(90deg,var(--blue),var(--cyan))}
+.card.c-green::before{background:linear-gradient(90deg,var(--green),var(--cyan))}
+.card.c-amber::before{background:linear-gradient(90deg,var(--amber),#f97316)}
+.card.c-red::before{background:linear-gradient(90deg,var(--red),#f43f5e)}
+.card.c-purple::before{background:linear-gradient(90deg,var(--purple),var(--blue))}
+.card::after{content:'';position:absolute;bottom:-20px;right:-20px;width:70px;height:70px;border-radius:50%;opacity:.07}
+.card.c-blue::after{background:var(--blue)}.card.c-green::after{background:var(--green)}
+.card.c-amber::after{background:var(--amber)}.card.c-red::after{background:var(--red)}
+.card.c-purple::after{background:var(--purple)}
+.card-label{font-size:11px;color:var(--text2);margin-bottom:8px;font-weight:500}
+.card-value{font-size:28px;font-weight:700;line-height:1.1}
+.card.c-blue .card-value{color:var(--blue)}.card.c-green .card-value{color:var(--green)}
+.card.c-amber .card-value{color:var(--amber)}.card.c-red .card-value{color:var(--red)}
+.card.c-purple .card-value{color:var(--purple)}
+
+/* STATUS GRID */
+.status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.status-tile{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--r2);
+  padding:14px 12px;text-align:center;transition:all .18s}
+.status-tile:hover{background:var(--glass2);border-color:var(--border2)}
+.status-tile .count{font-size:20px;font-weight:700;color:var(--blue)}
+.status-tile .lbl{font-size:11px;color:var(--text2);margin-top:3px}
+
+/* TABLES — frozen header + full scroll */
+.tbl-wrap{
+  overflow-x:auto;
+  overflow-y:auto;
+  max-height:72vh;
+  border-radius:var(--r);
+  border:1px solid var(--border)
+}
+table{width:100%;border-collapse:collapse;font-size:13px}
+/* Frozen header: sticky di dalam scroll container */
+thead tr th{
+  position:sticky;top:0;z-index:2;
+  background:rgba(10,16,35,0.97);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+}
+th{color:var(--text2);font-weight:600;font-size:11px;
+  text-transform:uppercase;letter-spacing:.6px;text-align:left;
+  padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--text);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr{transition:background .12s}
+tbody tr:hover td{background:rgba(79,156,249,.05)}
+
+/* BADGES */
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;
+  font-weight:600;white-space:nowrap;border:1px solid transparent}
+.b-valid{background:var(--green-dim);color:var(--green);border-color:rgba(52,211,153,.25)}
+.b-diluar{background:var(--amber-dim);color:var(--amber);border-color:rgba(251,191,36,.25)}
+.b-rejected{background:var(--red-dim);color:var(--red);border-color:rgba(248,113,113,.25)}
+.b-notfound{background:rgba(100,100,150,.15);color:#aab;border-color:rgba(150,150,200,.2)}
+.b-acer{background:rgba(79,156,249,.12);color:var(--acer-c);border-color:rgba(79,156,249,.25)}
+.b-asus{background:var(--red-dim);color:var(--asus-c);border-color:rgba(248,113,113,.25)}
+.b-lenovo{background:var(--green-dim);color:var(--lenovo-c);border-color:rgba(52,211,153,.25)}
+.b-hp{background:rgba(0,150,214,.12);color:var(--hp-c);border-color:rgba(0,150,214,.25)}
+.b-yes{background:var(--green-dim);color:var(--green);border-color:rgba(52,211,153,.25)}
+.b-no{background:rgba(255,255,255,.04);color:var(--text3);border-color:var(--border)}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;
+  border-radius:var(--r2);cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;
+  transition:all .18s;white-space:nowrap}
+.btn-primary{background:linear-gradient(135deg,var(--blue) 0%,var(--purple) 100%);color:#fff;
+  box-shadow:0 4px 16px var(--blue-glow)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 24px var(--blue-glow)}
+.btn-success{background:linear-gradient(135deg,var(--green),#10b981);color:#fff;
+  box-shadow:0 4px 14px rgba(52,211,153,.3)}
+.btn-success:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(52,211,153,.4)}
+.btn-outline{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(79,156,249,.35)}
+.btn-outline:hover{background:rgba(79,156,249,.25);border-color:var(--blue)}
+.btn-ghost{background:var(--glass);color:var(--text2);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--glass2);color:var(--text)}
+.btn-danger{background:var(--red-dim);color:var(--red);border:1px solid rgba(248,113,113,.3)}
+.btn-danger:hover{background:rgba(248,113,113,.2);border-color:var(--red)}
+.btn-sm{padding:5px 11px;font-size:12px}
+.btn:disabled{opacity:.35;cursor:not-allowed;pointer-events:none;transform:none!important;box-shadow:none!important}
+
+/* TOOLBAR */
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.spacer{flex:1}
+
+/* CONTROLS */
+select,input[type=text],input[type=search],input[type=number],input[type=date],textarea{
+  padding:7px 11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  border-radius:var(--r2);color:var(--text);font-size:13px;font-family:inherit;outline:none;transition:all .15s}
+select option{background:#0d1020;color:var(--text)}
+select:focus,input:focus,textarea:focus{border-color:var(--blue);background:rgba(79,156,249,.08);
+  box-shadow:0 0 0 3px rgba(79,156,249,.15)}
+input[type=search]{min-width:180px}
+input::placeholder{color:var(--text3)}
+
+/* UPLOAD */
+.upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:14px}
+.upload-card{background:var(--glass);border:1px solid var(--border);border-radius:var(--r);
+  padding:18px;position:relative;overflow:hidden;backdrop-filter:blur(12px)}
+.upload-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.uc-acer::before{background:linear-gradient(90deg,var(--acer-c),var(--cyan))}
+.uc-asus::before{background:linear-gradient(90deg,var(--asus-c),#f43f5e)}
+.uc-lenovo::before{background:linear-gradient(90deg,var(--lenovo-c),var(--cyan))}
+.uc-pos::before{background:linear-gradient(90deg,var(--pos-c),var(--blue))}
+.uc-hp::before{background:linear-gradient(90deg,var(--hp-c),#00c8ff)}
+.brand-hdr{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.brand-hdr strong{font-size:14px;font-weight:600;color:var(--text)}
+.brand-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot-acer{background:var(--acer-c);box-shadow:0 0 6px var(--acer-c)}
+.dot-asus{background:var(--asus-c);box-shadow:0 0 6px var(--asus-c)}
+.dot-lenovo{background:var(--lenovo-c);box-shadow:0 0 6px var(--lenovo-c)}
+.dot-pos{background:var(--pos-c);box-shadow:0 0 6px var(--pos-c)}
+.dot-hp{background:var(--hp-c);box-shadow:0 0 6px var(--hp-c)}
+.drop-zone{border:1.5px dashed rgba(255,255,255,.14);border-radius:10px;padding:20px 12px;
+  text-align:center;cursor:pointer;transition:all .2s;background:rgba(255,255,255,.02)}
+.drop-zone:hover{border-color:rgba(79,156,249,.6);background:rgba(79,156,249,.06)}
+.drop-zone.dragover{border-color:var(--blue);background:rgba(79,156,249,.1);
+  box-shadow:0 0 0 3px rgba(79,156,249,.15)}
+.drop-zone input{display:none}
+.drop-icon{font-size:22px;margin-bottom:5px;opacity:.7}
+.drop-label{font-size:12px;color:var(--text2);line-height:1.5}
+.drop-label small{font-size:11px;color:var(--text3)}
+.data-chip{display:inline-block;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);
+  border-radius:20px;padding:3px 10px;font-size:11px;color:var(--text2);font-weight:500}
+.data-chip.ok{background:var(--green-dim);border-color:rgba(52,211,153,.2);color:var(--green)}
+.upload-actions{display:flex;align-items:center;gap:8px;margin-top:10px}
+.progress-bar-wrap{height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:8px;overflow:hidden;display:none}
+.progress-bar{height:100%;background:linear-gradient(90deg,var(--blue),var(--purple));border-radius:2px;animation:prog 1.4s ease-in-out infinite}
+@keyframes prog{0%{width:0;margin-left:0}50%{width:55%}100%{width:0;margin-left:100%}}
+
+/* SUMMARY BAR */
+.sum-bar{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;
+  background:var(--glass);border:1px solid var(--border);border-radius:var(--r2);padding:10px 14px}
+.sum-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;
+  font-size:12px;font-weight:500;border:1px solid transparent}
+.sp-valid{background:var(--green-dim);color:var(--green);border-color:rgba(52,211,153,.2)}
+.sp-diluar{background:var(--amber-dim);color:var(--amber);border-color:rgba(251,191,36,.2)}
+.sp-rejected{background:var(--red-dim);color:var(--red);border-color:rgba(248,113,113,.2)}
+.sp-notfound{background:rgba(100,100,150,.12);color:#99a;border-color:rgba(150,150,200,.15)}
+.sum-rebate{margin-left:auto;font-size:13px;font-weight:700;color:var(--green)}
+
+/* ─── PROGRAM DETAIL CARDS ─── */
+.prog-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.prog-card{background:var(--glass);border:1px solid var(--border);border-radius:var(--r);
+  overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s;backdrop-filter:blur(12px)}
+.prog-card:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.4);border-color:var(--border2)}
+.prog-card-head{padding:16px 18px 14px;position:relative}
+.prog-card-head::after{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.ph-acer::after{background:linear-gradient(90deg,var(--acer-c),var(--cyan))}
+.ph-asus::after{background:linear-gradient(90deg,var(--asus-c),#f43f5e)}
+.ph-lenovo::after{background:linear-gradient(90deg,var(--lenovo-c),var(--cyan))}
+.ph-hp::after{background:linear-gradient(90deg,var(--hp-c),#00c8ff)}
+.prog-card-name{font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px;line-height:1.3}
+.prog-card-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.prog-card-period{font-size:11px;color:var(--text2)}
+.prog-card-body{padding:14px 18px;border-top:1px solid var(--border)}
+.prog-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.prog-stat{text-align:center;background:rgba(255,255,255,.03);border-radius:var(--r2);padding:10px 8px}
+.prog-stat-val{font-size:20px;font-weight:700}
+.prog-stat-val.g{color:var(--green)}.prog-stat-val.b{color:var(--blue)}
+.prog-stat-val.r{color:var(--red)}.prog-stat-val.p{color:var(--purple)}
+.prog-stat-lbl{font-size:10px;color:var(--text2);margin-top:2px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.prog-bar-wrap{height:5px;background:rgba(255,255,255,.07);border-radius:3px;margin-bottom:12px;overflow:hidden}
+.prog-bar{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--cyan));transition:width .6s ease}
+.prog-bar-label{font-size:11px;color:var(--text2);margin-bottom:12px}
+
+/* ─── DETAIL DRAWER (full overlay for program detail) ─── */
+.drawer{display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);align-items:flex-start;justify-content:center;padding:20px}
+.drawer.open{display:flex;animation:darken .2s ease}
+@keyframes darken{from{opacity:0}to{opacity:1}}
+.drawer-box{background:#0d1425;border:1px solid rgba(255,255,255,.1);border-radius:16px;
+  width:100%;max-width:1100px;max-height:calc(100vh - 40px);overflow-y:auto;
+  box-shadow:0 24px 80px rgba(0,0,0,.7);animation:slideUp .25s cubic-bezier(.34,1.2,.64,1)}
+@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.drawer-head{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;
+  position:sticky;top:0;background:rgba(13,20,37,.95);backdrop-filter:blur(16px);z-index:1;border-radius:16px 16px 0 0}
+.drawer-title{font-size:17px;font-weight:700;color:var(--text);flex:1}
+.drawer-body{padding:20px 24px}
+
+/* MODAL (program form) */
+.overlay{display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.65);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal{background:rgba(13,16,32,.97);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.1);
+  border-radius:16px;padding:28px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto;
+  box-shadow:0 32px 80px rgba(0,0,0,.7);animation:modalIn .2s cubic-bezier(.34,1.56,.64,1)}
+@keyframes modalIn{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}
+.modal-title{font-size:18px;font-weight:700;margin-bottom:22px;color:var(--text)}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:22px;padding-top:18px;border-top:1px solid var(--border)}
+.form-row{margin-bottom:16px}
+.form-row label{display:block;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text2);margin-bottom:6px}
+.form-row input,.form-row select,.form-row textarea{width:100%}
+.form-row textarea{min-height:80px;resize:vertical}
+.form-hint{font-size:11px;color:var(--text3);margin-top:4px}
+.form-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* TOAST */
+#toast{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.t-item{padding:11px 18px;border-radius:10px;font-size:13px;font-weight:500;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);animation:tin .25s ease;max-width:340px;
+  backdrop-filter:blur(12px);border:1px solid transparent}
+.t-item.ok{background:rgba(34,197,94,.15);color:#4ade80;border-color:rgba(34,197,94,.25)}
+.t-item.err{background:rgba(239,68,68,.15);color:#f87171;border-color:rgba(239,68,68,.25)}
+.t-item.info{background:rgba(255,255,255,.08);color:var(--text);border-color:var(--border)}
+@keyframes tin{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
+
+/* SPINNER */
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.25);
+  border-top-color:#fff;border-radius:50%;animation:rot .65s linear infinite}
+.spin.dk{border-color:rgba(79,156,249,.2);border-top-color:var(--blue)}
+@keyframes rot{to{transform:rotate(360deg)}}
+
+/* UTILITY */
+.mb-16{margin-bottom:16px}
+.fw-600{font-weight:600}
+.text-sm{font-size:12px;color:var(--text2)}
+.mono{font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;color:var(--text2)}
+.truncate{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty-state{text-align:center;padding:44px 16px;color:var(--text2)}
+.empty-state .ico{font-size:38px;margin-bottom:10px}
+
+/* ─── FULL-WIDTH TABLE SYSTEM (single-line rows) ──────────────
+   table-layout:auto → browser tentukan lebar kolom dari konten
+   white-space:nowrap  → teks tidak wrap, semua karakter terlihat
+   tbl-wrap overflow-x:auto → jika total lebar > container, scroll
+──────────────────────────────────────────────────────────────── */
+.ftbl{table-layout:auto;width:100%}
+
+/* Override truncate di dalam tabel data */
+.ftbl td.truncate{
+  max-width:none!important;overflow:visible!important;
+  text-overflow:initial!important;white-space:nowrap!important}
+
+/* Semua sel: satu baris, tidak terpotong */
+.ftbl td{white-space:nowrap;vertical-align:middle;overflow:visible}
+
+/* Serial number: monospace */
+.ftbl td.mono{
+  font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;
+  color:var(--text2);white-space:nowrap}
+
+/* Kolom Alasan/Keterangan boleh wrap (teks panjang) */
+.ftbl td.wrap{white-space:normal!important;overflow-wrap:anywhere;word-break:break-word;
+  max-width:260px;vertical-align:top}
+
+/* Kolom lebar minimum agar tabel punya proporsi yang baik */
+.ftbl th:nth-child(1){min-width:36px}   /* # */
+.ftbl th:nth-child(2){min-width:190px}  /* No.Dok */
+.ftbl th:nth-child(3){min-width:64px}   /* Brand */
+.ftbl th:nth-child(4){min-width:175px}  /* Kode Barang */
+.ftbl th:nth-child(5){min-width:195px}  /* SN Toko */
+.ftbl th:nth-child(6){min-width:195px}  /* SN Brand */
+.ftbl th:nth-child(7){min-width:108px}  /* Status */
+.ftbl th:nth-child(8){min-width:84px}   /* Tgl Brand / Alasan */
+.ftbl th:nth-child(9){min-width:155px}  /* Program / Tgl Brand */
+.ftbl th:nth-child(10){min-width:86px}  /* Rebate */
+
+/* Kolom lebar minimum: tabel Laporan SN (11 col) */
+.ftbl.lap th:nth-child(8){min-width:220px}  /* Alasan */
+.ftbl.lap th:nth-child(9){min-width:84px}   /* Tgl Brand */
+.ftbl.lap th:nth-child(10){min-width:130px} /* Program */
+.ftbl.lap th:nth-child(11){min-width:80px}  /* Rebate */
+
+/* Kolom lebar minimum: Drawer (9 col) */
+.ftbl.drw th:nth-child(7){min-width:220px}  /* Alasan */
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">&#11042; Rebate Validator</div>
+  <nav class="tabs">
+    <button class="tab-btn active" onclick="gotoTab('dashboard',this)">Dashboard</button>
+    <button class="tab-btn" onclick="gotoTab('upload',this)">Upload Data</button>
+    <button class="tab-btn" onclick="gotoTab('hasil',this)">Hasil Validasi</button>
+    <button class="tab-btn" onclick="gotoTab('laporan',this)">Laporan SN</button>
+    <button class="tab-btn" onclick="gotoTab('program',this)">Detail Program</button>
+    <button class="tab-btn" onclick="gotoTab('setting',this)">Setting</button>
+  </nav>
+</header>
+
+<div id="toast"></div>
+<main>
+
+<!-- ═══ DASHBOARD ═══ -->
+<div class="pane active" id="pane-dashboard">
+  <div class="card-row">
+    <div class="card c-blue"><div class="card-label">Total SN Diproses</div><div class="card-value" id="s-total">&#8211;</div></div>
+    <div class="card c-green"><div class="card-label">&#10003; Valid</div><div class="card-value" id="s-valid">&#8211;</div></div>
+    <div class="card c-amber"><div class="card-label">&#9888; Di Luar Periode</div><div class="card-value" id="s-diluar">&#8211;</div></div>
+    <div class="card c-red"><div class="card-label">&#10007; Ditolak / Tidak Ditemukan</div><div class="card-value" id="s-reject">&#8211;</div></div>
+    <div class="card c-purple"><div class="card-label">&#128176; Total Rebate</div><div class="card-value" style="color:var(--purple)" id="s-rebate">&#8211;</div></div>
+  </div>
+  <div class="panel mb-16">
+    <div class="section-title">Status Data Upload</div>
+    <div class="status-grid">
+      <div class="status-tile"><div class="count" id="cnt-pos">&#8211;</div><div class="lbl">POS / Penjualan</div></div>
+      <div class="status-tile"><div class="count" id="cnt-acer" style="color:var(--acer-c)">&#8211;</div><div class="lbl">Acer Verifikasi</div></div>
+      <div class="status-tile"><div class="count" id="cnt-asus" style="color:var(--asus-c)">&#8211;</div><div class="lbl">Asus Verifikasi</div></div>
+      <div class="status-tile"><div class="count" id="cnt-lenovo" style="color:var(--lenovo-c)">&#8211;</div><div class="lbl">Lenovo Verifikasi</div></div>
+      <div class="status-tile"><div class="count" id="cnt-hp" style="color:var(--hp-c)">&#8211;</div><div class="lbl">HP Verifikasi</div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="section-title">Program Aktif</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nama Program</th><th>Brand</th><th>Jumlah SKU</th><th>Periode</th><th>Rebate/Unit</th></tr></thead>
+        <tbody id="prog-tbody"><tr><td colspan="5"><div class="empty-state"><div class="ico">&#8987;</div>Memuat&#8230;</div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ UPLOAD ═══ -->
+<div class="pane" id="pane-upload">
+  <div class="panel mb-16">
+    <div class="section-title">Data Penjualan Toko (POS / Kasir Export)</div>
+    <div class="upload-grid" style="grid-template-columns:1fr">
+      <div class="upload-card uc-pos">
+        <div class="brand-hdr"><div class="brand-dot dot-pos"></div><strong>POS / Kasir</strong>
+          <span id="pos-chip" class="data-chip" style="margin-left:auto">Belum ada data</span></div>
+        <div class="drop-zone" onclick="document.getElementById('fi-POS').click()"
+             ondragover="dzOver(event,this)" ondragleave="dzLeave(this)" ondrop="dzDrop(event,'POS',this)">
+          <input type="file" id="fi-POS" accept=".csv,.xlsx,.xls" onchange="fileSelected(this,'POS')">
+          <div class="drop-icon">&#128194;</div>
+          <div class="drop-label">Klik atau drag file CSV / XLSX<br><small>Kolom U = NomorSeri</small></div>
+        </div>
+        <div id="prev-POS" class="data-chip" style="display:none;margin-top:8px"></div>
+        <div class="upload-actions">
+          <button class="btn btn-primary btn-sm" id="btn-up-POS" disabled onclick="doUpload('POS')">Upload</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetUpload('POS')">Reset</button>
+        </div>
+        <div class="progress-bar-wrap" id="pb-POS"><div class="progress-bar"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="section-title">Data Verifikasi Brand</div>
+    <div class="upload-grid">
+      <div class="upload-card uc-acer">
+        <div class="brand-hdr"><div class="brand-dot dot-acer"></div><strong>Acer</strong>
+          <span id="acer-chip" class="data-chip" style="margin-left:auto">Belum ada data</span></div>
+        <div class="drop-zone" onclick="document.getElementById('fi-ACER').click()"
+             ondragover="dzOver(event,this)" ondragleave="dzLeave(this)" ondrop="dzDrop(event,'ACER',this)">
+          <input type="file" id="fi-ACER" accept=".csv,.xlsx,.xls" onchange="fileSelected(this,'ACER')">
+          <div class="drop-icon">&#128194;</div>
+          <div class="drop-label">CSV / XLSX Acer<br><small>SN kolom M &#183; Tgl Invoice kolom J</small></div>
+        </div>
+        <div id="prev-ACER" class="data-chip" style="display:none;margin-top:8px"></div>
+        <div class="upload-actions">
+          <button class="btn btn-primary btn-sm" id="btn-up-ACER" disabled onclick="doUpload('ACER')">Upload</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetUpload('ACER')">Reset</button>
+        </div>
+        <div class="progress-bar-wrap" id="pb-ACER"><div class="progress-bar"></div></div>
+      </div>
+      <div class="upload-card uc-asus">
+        <div class="brand-hdr"><div class="brand-dot dot-asus"></div><strong>Asus</strong>
+          <span id="asus-chip" class="data-chip" style="margin-left:auto">Belum ada data</span></div>
+        <div class="drop-zone" onclick="document.getElementById('fi-ASUS').click()"
+             ondragover="dzOver(event,this)" ondragleave="dzLeave(this)" ondrop="dzDrop(event,'ASUS',this)">
+          <input type="file" id="fi-ASUS" accept=".csv,.xlsx,.xls" onchange="fileSelected(this,'ASUS')">
+          <div class="drop-icon">&#128194;</div>
+          <div class="drop-label">CSV / XLSX Asus<br><small>SN kolom N &#183; Final_comment kolom O</small></div>
+        </div>
+        <div id="prev-ASUS" class="data-chip" style="display:none;margin-top:8px"></div>
+        <div class="upload-actions">
+          <button class="btn btn-primary btn-sm" id="btn-up-ASUS" disabled onclick="doUpload('ASUS')">Upload</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetUpload('ASUS')">Reset</button>
+        </div>
+        <div class="progress-bar-wrap" id="pb-ASUS"><div class="progress-bar"></div></div>
+      </div>
+      <div class="upload-card uc-lenovo">
+        <div class="brand-hdr"><div class="brand-dot dot-lenovo"></div><strong>Lenovo</strong>
+          <span id="lenovo-chip" class="data-chip" style="margin-left:auto">Belum ada data</span></div>
+        <div class="drop-zone" onclick="document.getElementById('fi-LENOVO').click()"
+             ondragover="dzOver(event,this)" ondragleave="dzLeave(this)" ondrop="dzDrop(event,'LENOVO',this)">
+          <input type="file" id="fi-LENOVO" accept=".csv,.xlsx,.xls" onchange="fileSelected(this,'LENOVO')">
+          <div class="drop-icon">&#128194;</div>
+          <div class="drop-label">CSV / XLSX Lenovo<br><small>SN kolom C &#183; STATUS kolom E</small></div>
+        </div>
+        <div id="prev-LENOVO" class="data-chip" style="display:none;margin-top:8px"></div>
+        <div class="upload-actions">
+          <button class="btn btn-primary btn-sm" id="btn-up-LENOVO" disabled onclick="doUpload('LENOVO')">Upload</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetUpload('LENOVO')">Reset</button>
+        </div>
+        <div class="progress-bar-wrap" id="pb-LENOVO"><div class="progress-bar"></div></div>
+      </div>
+
+      <div class="upload-card uc-hp">
+        <div class="brand-hdr"><div class="brand-dot dot-hp"></div><strong>HP</strong>
+          <span id="hp-chip" class="data-chip" style="margin-left:auto">Belum ada data</span></div>
+        <div class="drop-zone" onclick="document.getElementById('fi-HP').click()"
+             ondragover="dzOver(event,this)" ondragleave="dzLeave(this)" ondrop="dzDrop(event,'HP',this)">
+          <input type="file" id="fi-HP" accept=".csv,.xlsx,.xls" onchange="fileSelected(this,'HP')">
+          <div class="drop-icon">&#128194;</div>
+          <div class="drop-label">CSV / XLSX HP (A&#8211;AZ)<br><small>SN kolom AB (28) &#183; SO Validation kolom AN (40)</small></div>
+        </div>
+        <div id="prev-HP" class="data-chip" style="display:none;margin-top:8px"></div>
+        <div class="upload-actions">
+          <button class="btn btn-primary btn-sm" id="btn-up-HP" disabled onclick="doUpload('HP')">Upload</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetUpload('HP')">Reset</button>
+        </div>
+        <div class="progress-bar-wrap" id="pb-HP"><div class="progress-bar"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ HASIL VALIDASI ═══ -->
+<div class="pane" id="pane-hasil">
+  <div class="toolbar">
+    <button class="btn btn-success" id="run-btn" onclick="runValidasi()">&#9654; Jalankan Validasi</button>
+    <button class="btn btn-ghost btn-sm" onclick="loadHasil()">&#8635; Refresh</button>
+    <div class="spacer"></div>
+    <select id="f-brand" onchange="renderHasil()">
+      <option value="">Semua Brand</option><option>ACER</option><option>ASUS</option><option>LENOVO</option><option>HP</option>
+    </select>
+    <select id="f-status" onchange="renderHasil()">
+      <option value="">Semua Status</option>
+      <option value="VALID">Valid</option>
+      <option value="DILUAR">Di Luar Periode</option>
+      <option value="DITOLAK">Ditolak / Tidak Ditemukan</option>
+    </select>
+    <input type="search" id="f-cari" placeholder="Cari SN, No.Dok, SKU&#8230;" oninput="renderHasil()">
+  </div>
+  <div class="sum-bar" id="hasil-bar"></div>
+  <div class="tbl-wrap">
+    <table class="ftbl">
+      <thead><tr>
+        <th>#</th><th>No. Dok</th><th>Brand</th><th>Kode Barang</th>
+        <th>SN Toko</th><th>SN Brand</th><th>Status</th>
+        <th>Tgl Brand</th><th>Program</th><th>Rebate/Unit</th>
+      </tr></thead>
+      <tbody id="hasil-tbody">
+        <tr><td colspan="10"><div class="empty-state"><div class="ico">&#9654;</div>Tekan Jalankan Validasi untuk memulai</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ LAPORAN SN ═══ -->
+<div class="pane" id="pane-laporan">
+  <div class="card-row" id="lap-cards">
+    <div class="card c-green"><div class="card-label">&#10003; Valid</div><div class="card-value" id="lc-valid">&#8211;</div></div>
+    <div class="card c-amber"><div class="card-label">&#9888; Di Luar Periode</div><div class="card-value" id="lc-diluar">&#8211;</div></div>
+    <div class="card c-red"><div class="card-label">&#10007; Ditolak Brand</div><div class="card-value" id="lc-ditolak">&#8211;</div></div>
+    <div class="card c-purple"><div class="card-label">&#8253; Tidak Ditemukan</div><div class="card-value" id="lc-notfound">&#8211;</div></div>
+  </div>
+  <div class="toolbar">
+    <button class="btn btn-ghost btn-sm" onclick="loadLaporan()">&#8635; Refresh</button>
+    <div class="spacer"></div>
+    <select id="lap-brand" onchange="renderLaporan()">
+      <option value="">Semua Brand</option><option>ACER</option><option>ASUS</option><option>LENOVO</option><option>HP</option>
+    </select>
+    <select id="lap-status" onchange="renderLaporan()">
+      <option value="">Semua Status</option>
+      <option value="VALID">&#10003; Valid</option>
+      <option value="DILUAR">&#9888; Di Luar Periode</option>
+      <option value="DITOLAK">&#10007; Ditolak Brand</option>
+      <option value="TIDAK">&#8253; Tidak Ditemukan</option>
+    </select>
+    <input type="search" id="lap-cari" placeholder="Cari SN atau alasan&#8230;" oninput="renderLaporan()">
+  </div>
+  <div class="tbl-wrap">
+    <table class="ftbl lap">
+      <thead><tr>
+        <th>#</th><th>No. Dok</th><th>Brand</th><th>Kode Barang</th>
+        <th>SN Toko</th><th>SN Brand</th>
+        <th>Status</th><th>Alasan / Keterangan</th>
+        <th>Tgl Brand</th><th>Program</th><th>Rebate</th>
+      </tr></thead>
+      <tbody id="lap-tbody">
+        <tr><td colspan="11"><div class="empty-state"><div class="ico">&#128203;</div>Buka tab ini setelah menjalankan validasi</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ DETAIL PROGRAM ═══ -->
+<div class="pane" id="pane-program">
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="loadProgramPage()">&#8635; Muat Data Program</button>
+    <div class="spacer"></div>
+    <input type="search" id="prog-cari" placeholder="Cari nama program&#8230;" oninput="filterProgCards()">
+  </div>
+  <div class="prog-grid" id="prog-cards">
+    <div style="grid-column:1/-1"><div class="empty-state"><div class="ico">&#128200;</div>Klik "Muat Data Program" untuk menampilkan detail</div></div>
+  </div>
+</div>
+
+<!-- ═══ SETTING ═══ -->
+<div class="pane" id="pane-setting">
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="openModal()">+ Tambah Program</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost btn-sm" onclick="loadPrograms()">&#8635; Refresh</button>
+  </div>
+  <div class="tbl-wrap">
+    <table class="ftbl">
+      <thead><tr>
+        <th>ID Program</th><th>Nama Program</th><th>Brand</th>
+        <th>SKU (preview)</th><th>Periode</th><th>Rebate/Unit</th><th>Aktif</th><th>Aksi</th>
+      </tr></thead>
+      <tbody id="setting-tbody">
+        <tr><td colspan="8"><div class="empty-state"><div class="ico">&#8987;</div>Memuat&#8230;</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</main>
+
+<!-- ═══ DRAWER: Detail Program ═══ -->
+<div class="drawer" id="drawer" onclick="drawerClick(event)">
+  <div class="drawer-box" id="drawer-box">
+    <div class="drawer-head">
+      <span class="badge" id="drawer-brand-badge"></span>
+      <div class="drawer-title" id="drawer-title">Detail Program</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeDrawer()">&#10005; Tutup</button>
+    </div>
+    <div class="drawer-body">
+      <div class="sum-bar" id="drawer-sumbar"></div>
+      <div class="toolbar" style="margin-bottom:12px">
+        <select id="drawer-fstatus" onchange="renderDrawerTable()">
+          <option value="">Semua Status</option>
+          <option value="VALID">Valid</option>
+          <option value="DILUAR">Di Luar Periode</option>
+          <option value="DITOLAK">Ditolak</option>
+          <option value="TIDAK">Tidak Ditemukan</option>
+        </select>
+        <input type="search" id="drawer-fcari" placeholder="Cari SN&#8230;" oninput="renderDrawerTable()">
+      </div>
+      <div class="tbl-wrap">
+        <table class="ftbl drw">
+          <thead><tr>
+            <th>#</th><th>No. Dok</th><th>Kode Barang</th>
+            <th>SN Toko</th><th>SN Brand</th>
+            <th>Status</th><th>Alasan</th>
+            <th>Tgl Brand</th><th>Rebate/Unit</th>
+          </tr></thead>
+          <tbody id="drawer-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: Form Program ═══ -->
+<div class="overlay" id="overlay" onclick="overlayClick(event)">
+  <div class="modal">
+    <div class="modal-title" id="modal-title">Tambah Program Rebate</div>
+    <div class="form-row"><label>Nama Program</label>
+      <input type="text" id="f-nama" placeholder="Contoh: Acer A715 Promo Q2 2026"></div>
+    <div class="form-2">
+      <div class="form-row"><label>Brand</label>
+        <select id="f-brand-m"><option value="ACER">ACER</option><option value="ASUS">ASUS</option><option value="LENOVO">LENOVO</option><option value="HP">HP</option></select></div>
+      <div class="form-row"><label>Rebate per Unit (Rp)</label>
+        <input type="number" id="f-rebate" placeholder="75000"></div>
+    </div>
+    <div class="form-row"><label>SKU List (Kode Barang)</label>
+      <textarea id="f-sku" placeholder="NB-AC-A715-59G-516G, NB-AC-AG14-71M-5471&#10;Pisah koma atau per baris"></textarea>
+      <div class="form-hint">Kode Barang dari data POS yang berlaku untuk program ini.</div></div>
+    <div class="form-2">
+      <div class="form-row"><label>Tanggal Mulai</label><input type="date" id="f-mulai"></div>
+      <div class="form-row"><label>Tanggal Akhir</label><input type="date" id="f-akhir"></div>
+    </div>
+    <div class="form-2">
+      <div class="form-row"><label>Status Aktif</label>
+        <select id="f-aktif"><option value="YES">YES &#8211; Aktif</option><option value="NO">NO &#8211; Non-aktif</option></select></div>
+      <div class="form-row"><label>Keterangan (opsional)</label>
+        <input type="text" id="f-ket" placeholder="Keterangan tambahan"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="saveProgram()">Simpan Program</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──
+let allHasil    = [];
+let allPrograms = [];
+let drawerSNs   = [];
+let pendingData = {};
+let editRow     = null;
+
+// ── TABS ──
+function gotoTab(name,btn){
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('pane-'+name).classList.add('active');
+  btn.classList.add('active');
+  if(name==='dashboard') loadDashboard();
+  if(name==='upload')    loadDataInfo();
+  if(name==='hasil')     loadHasil();
+  if(name==='laporan')   loadLaporan();
+  if(name==='program')   {}
+  if(name==='setting')   loadPrograms();
+}
+
+// ── TOAST ──
+function toast(msg,type='info'){
+  const el=document.createElement('div');
+  el.className='t-item '+type;
+  el.textContent=msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(()=>el.remove(),3800);
+}
+
+// ── SHARED: load hasil data (silent, no spinner) ──
+function ensureHasil(cb){
+  if(allHasil.length>0){cb();return;}
+  google.script.run
+    .withSuccessHandler(res=>{const d=JSON.parse(res);if(d.ok)allHasil=d.rows;cb();})
+    .withFailureHandler(()=>cb())
+    .getHasilValidasiData();
+}
+
+// ── DASHBOARD ──
+function loadDashboard(){
+  google.script.run.withSuccessHandler(res=>{
+    try{
+      const d=JSON.parse(res);if(!d.ok)return toast(d.error,'err');
+      const s=d.summary;
+      document.getElementById('s-total').textContent =s.total.toLocaleString('id');
+      document.getElementById('s-valid').textContent =s.valid.toLocaleString('id');
+      document.getElementById('s-diluar').textContent=s.diluar.toLocaleString('id');
+      document.getElementById('s-reject').textContent=(s.ditolak+s.tidakDitemukan).toLocaleString('id');
+      document.getElementById('s-rebate').textContent='Rp '+s.totalRebate.toLocaleString('id');
+      document.getElementById('cnt-pos').textContent   =(d.posRows||0).toLocaleString('id')+' baris';
+      document.getElementById('cnt-acer').textContent  =(d.brandRows.ACER||0).toLocaleString('id')+' baris';
+      document.getElementById('cnt-asus').textContent  =(d.brandRows.ASUS||0).toLocaleString('id')+' baris';
+      document.getElementById('cnt-lenovo').textContent=(d.brandRows.LENOVO||0).toLocaleString('id')+' baris';
+      document.getElementById('cnt-hp').textContent    =(d.brandRows.HP||0).toLocaleString('id')+' baris';
+      const tb=document.getElementById('prog-tbody');
+      if(!d.programs.length){
+        tb.innerHTML='<tr><td colspan="5"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program aktif</div></td></tr>';
+      }else{
+        tb.innerHTML=d.programs.map(p=>`<tr>
+          <td class="fw-600">${p.nama}</td>
+          <td><span class="badge b-${p.brand.toLowerCase()}">${p.brand}</span></td>
+          <td>${p.skuCount} SKU</td>
+          <td class="text-sm">${p.periode}</td>
+          <td>Rp ${Number(p.rebate).toLocaleString('id')}</td></tr>`).join('');
+      }
+    }catch(e){toast('Error memuat dashboard','err');}
+  }).withFailureHandler(e=>toast(e.message,'err')).getDashboardData();
+}
+
+// ── DATA INFO ──
+function loadDataInfo(){
+  google.script.run.withSuccessHandler(res=>{
+    try{
+      const d=JSON.parse(res);if(!d.ok)return;
+      const setChip=(id,rows)=>{
+        const el=document.getElementById(id);if(!el)return;
+        el.textContent=rows>0?`${rows.toLocaleString('id')} baris`:'Belum ada data';
+        el.className='data-chip'+(rows>0?' ok':'');
+      };
+      setChip('pos-chip',   d.info.POS   ?d.info.POS.rows   :0);
+      setChip('acer-chip',  d.info.ACER  ?d.info.ACER.rows  :0);
+      setChip('asus-chip',  d.info.ASUS  ?d.info.ASUS.rows  :0);
+      setChip('lenovo-chip',d.info.LENOVO?d.info.LENOVO.rows:0);
+      setChip('hp-chip',    d.info.HP    ?d.info.HP.rows    :0);
+    }catch(e){}
+  }).getBrandDataInfo();
+}
+
+// ── UPLOAD ──
+function dzOver(e,el){e.preventDefault();el.classList.add('dragover');}
+function dzLeave(el){el.classList.remove('dragover');}
+function dzDrop(e,brand,el){e.preventDefault();el.classList.remove('dragover');const f=e.dataTransfer.files[0];if(f)readFile(f,brand);}
+function fileSelected(inp,brand){if(inp.files[0])readFile(inp.files[0],brand);}
+function readFile(file,brand){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    let rows;
+    var _nm=file.name.toLowerCase();
+    if(_nm.endsWith('.xlsx')||_nm.endsWith('.xls')){
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true,dateNF:'dd/mm/yyyy'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,dateNF:'dd/mm/yyyy'});
+    }else{rows=parseCSV(new TextDecoder().decode(new Uint8Array(e.target.result)));}
+    rows=rows.filter(r=>r.some(c=>c!==''&&c!==null&&c!==undefined));
+    pendingData[brand]=rows;
+    const prev=document.getElementById('prev-'+brand);
+    const btn=document.getElementById('btn-up-'+brand);
+    if(prev){prev.style.display='block';prev.className='data-chip ok';prev.textContent=file.name+' - '+(rows.length-1)+' baris siap upload';}
+    if(btn)btn.disabled=false;
+  };
+  reader.readAsArrayBuffer(file);
+}
+function doUpload(brand){
+  const rows=pendingData[brand];if(!rows)return;
+  const pb=document.getElementById('pb-'+brand);
+  const btn=document.getElementById('btn-up-'+brand);
+  if(pb)pb.style.display='block';if(btn)btn.disabled=true;
+  const onOk=res=>{
+    if(pb)pb.style.display='none';const d=JSON.parse(res);
+    if(d.ok){toast(`Upload ${brand} berhasil: ${d.rowsAdded} baris`,'ok');delete pendingData[brand];loadDataInfo();}
+    else{toast('Upload gagal: '+d.error,'err');if(btn)btn.disabled=false;}
+  };
+  const onErr=e=>{if(pb)pb.style.display='none';toast(e.message,'err');if(btn)btn.disabled=false;};
+  if(brand==='POS'){google.script.run.withSuccessHandler(onOk).withFailureHandler(onErr).uploadPosData(rows);}
+  else{google.script.run.withSuccessHandler(onOk).withFailureHandler(onErr).uploadBrandData(brand,rows);}
+}
+function resetUpload(brand){
+  delete pendingData[brand];
+  const prev=document.getElementById('prev-'+brand);
+  const btn=document.getElementById('btn-up-'+brand);
+  const fi=document.getElementById('fi-'+brand);
+  if(prev)prev.style.display='none';if(btn)btn.disabled=true;if(fi)fi.value='';
+}
+
+// ── VALIDASI ──
+function runValidasi(){
+  const btn=document.getElementById('run-btn');btn.disabled=true;
+  btn.innerHTML='<span class="spin"></span> Memproses...';
+  google.script.run
+    .withSuccessHandler(res=>{
+      btn.disabled=false;btn.innerHTML='&#9654; Jalankan Validasi';
+      const d=JSON.parse(res);
+      if(d.ok){toast(`Validasi selesai: ${d.count} SN diproses`,'ok');allHasil=[];loadHasil();}
+      else toast(d.error,'err');
+    })
+    .withFailureHandler(e=>{btn.disabled=false;btn.innerHTML='&#9654; Jalankan Validasi';toast(e.message,'err');})
+    .runValidasiServer();
+}
+
+// ── HASIL VALIDASI ──
+function loadHasil(){
+  const tb=document.getElementById('hasil-tbody');
+  tb.innerHTML='<tr><td colspan="10"><div class="empty-state"><span class="spin dk"></span></div></td></tr>';
+  google.script.run
+    .withSuccessHandler(res=>{const d=JSON.parse(res);if(!d.ok){toast(d.error,'err');return;}allHasil=d.rows;renderHasil();})
+    .withFailureHandler(e=>toast(e.message,'err')).getHasilValidasiData();
+}
+function renderHasil(){
+  const brand=document.getElementById('f-brand').value;
+  const status=document.getElementById('f-status').value;
+  const cari=document.getElementById('f-cari').value.toLowerCase();
+  const fx=filterRows(allHasil,brand,status,cari,['snToko','noDok','kodeBarang']);
+  const {valid,diluar,rejected,notfound,rebate}=calcStats(fx);
+  document.getElementById('hasil-bar').innerHTML=makeSumBar(valid,diluar,rejected,notfound,rebate);
+  const tb=document.getElementById('hasil-tbody');
+  if(!fx.length){tb.innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="ico">&#128269;</div>Tidak ada data sesuai filter</div></td></tr>';return;}
+  tb.innerHTML=fx.map(r=>{
+    const {bc,btx}=statusBadge(r.status);
+    return `<tr>
+      <td class="text-sm">${r.no}</td>
+      <td class="text-sm">${r.noDok}</td>
+      <td><span class="badge b-${r.brand.toLowerCase()}">${r.brand}</span></td>
+      <td class="text-sm">${r.kodeBarang}</td>
+      <td class="mono">${r.snToko}</td><td class="mono">${r.snBrand}</td>
+      <td><span class="badge ${bc}">${btx}</span></td>
+      <td class="text-sm nowrap">${r.tglBrand||'&#8211;'}</td>
+      <td class="text-sm">${r.program||'&#8211;'}</td>
+      <td class="text-sm nowrap">${r.rebate?'Rp '+Number(r.rebate).toLocaleString('id'):'&#8211;'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── LAPORAN SN ──
+function loadLaporan(){
+  ensureHasil(renderLaporan);
+}
+function renderLaporan(){
+  const brand=document.getElementById('lap-brand').value;
+  const status=document.getElementById('lap-status').value;
+  const cari=document.getElementById('lap-cari').value.toLowerCase();
+  const fx=filterRows(allHasil,brand,status,cari,['snToko','noDok','kodeBarang','keterangan']);
+  const {valid,diluar,rejected,notfound,rebate}=calcStats(fx);
+  // Update cards
+  document.getElementById('lc-valid').textContent   =valid.toLocaleString('id');
+  document.getElementById('lc-diluar').textContent  =diluar.toLocaleString('id');
+  document.getElementById('lc-ditolak').textContent =rejected.toLocaleString('id');
+  document.getElementById('lc-notfound').textContent=notfound.toLocaleString('id');
+  const tb=document.getElementById('lap-tbody');
+  if(!fx.length){
+    tb.innerHTML='<tr><td colspan="11"><div class="empty-state"><div class="ico">&#128269;</div>Tidak ada data sesuai filter</div></td></tr>';return;
+  }
+  tb.innerHTML=fx.map(r=>{
+    const {bc,btx}=statusBadge(r.status);
+    const ketStyle=String(r.status).toUpperCase().indexOf('VALID')>=0?'color:var(--text2)':'color:var(--red)';
+    return `<tr>
+      <td class="text-sm">${r.no}</td>
+      <td class="text-sm">${r.noDok}</td>
+      <td><span class="badge b-${r.brand.toLowerCase()}">${r.brand}</span></td>
+      <td class="text-sm">${r.kodeBarang}</td>
+      <td class="mono">${r.snToko}</td>
+      <td class="mono">${r.snBrand||'&#8211;'}</td>
+      <td><span class="badge ${bc}">${btx}</span></td>
+      <td class="text-sm wrap" style="${ketStyle}">${r.keterangan||'&#8211;'}</td>
+      <td class="text-sm">${r.tglBrand||'&#8211;'}</td>
+      <td class="text-sm">${r.program||'&#8211;'}</td>
+      <td class="text-sm">${r.rebate?'Rp '+Number(r.rebate).toLocaleString('id'):'&#8211;'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── DETAIL PROGRAM ──
+function loadProgramPage(){
+  const grid=document.getElementById('prog-cards');
+  grid.innerHTML='<div style="grid-column:1/-1"><div class="empty-state"><span class="spin dk"></span></div></div>';
+  // Load programs then hasil
+  google.script.run
+    .withSuccessHandler(res=>{
+      const d=JSON.parse(res);if(!d.ok){toast(d.error,'err');return;}
+      allPrograms=d.rows.map(p=>({
+        ...p,
+        skuArray:p.skuList.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean)
+      }));
+      ensureHasil(renderProgCards);
+    })
+    .withFailureHandler(e=>toast(e.message,'err'))
+    .getProgramSettings();
+}
+function renderProgCards(){
+  const cari=document.getElementById('prog-cari').value.toLowerCase();
+  const progs=allPrograms.filter(p=>!cari||p.nama.toLowerCase().includes(cari));
+  const grid=document.getElementById('prog-cards');
+  if(!progs.length){
+    grid.innerHTML='<div style="grid-column:1/-1"><div class="empty-state"><div class="ico">&#128203;</div>Tidak ada program ditemukan</div></div>';return;
+  }
+  grid.innerHTML=progs.map(p=>{
+    // PATCH: cocokkan SKU lalu evaluasi ulang status SN khusus periode program ini
+    const sns=allHasil
+      .filter(r=>p.skuArray.includes(r.kodeBarang.toUpperCase()))
+      .map(r=>deriveRowForProgram(r,p));
+    const total=sns.length;
+    const _up=function(r){return String(r.status||'').toUpperCase();};
+    const valid=sns.filter(r=>_up(r).indexOf('VALID')>=0).length;
+    const diluar=sns.filter(r=>_up(r).indexOf('DILUAR')>=0).length;
+    const ditolak=sns.filter(r=>_up(r).indexOf('DITOLAK')>=0||_up(r).indexOf('TIDAK')>=0).length;
+    const totalRebate=sns.filter(r=>_up(r).indexOf('VALID')>=0).reduce((s,r)=>s+(Number(r.rebate)||0),0);
+    const pct=total>0?Math.round(valid/total*100):0;
+    const phClass=`ph-${p.brand.toLowerCase()}`;
+    const expired=isExpired(p);
+    const aktifBadge=expired
+      ? '<span class="badge b-no" title="Periode berakhir '+p.tglAkhir+' - otomatis non-aktif">&#9200; Kadaluarsa</span>'
+      : '<span class="badge '+(p.aktif==='YES'?'b-yes':'b-no')+'">'+p.aktif+'</span>';
+    return `<div class="prog-card">
+      <div class="prog-card-head ${phClass}">
+        <div class="prog-card-name">${p.nama}</div>
+        <div class="prog-card-meta">
+          <span class="badge b-${p.brand.toLowerCase()}">${p.brand}</span>
+          <span class="prog-card-period">${p.tglMulai} &#8211; ${p.tglAkhir}</span>
+          ${aktifBadge}
+        </div>
+      </div>
+      <div class="prog-card-body">
+        <div class="prog-stats">
+          <div class="prog-stat">
+            <div class="prog-stat-val g">${valid.toLocaleString('id')}</div>
+            <div class="prog-stat-lbl">Valid</div>
+          </div>
+          <div class="prog-stat">
+            <div class="prog-stat-val r">${ditolak.toLocaleString('id')}</div>
+            <div class="prog-stat-lbl">Ditolak</div>
+          </div>
+          <div class="prog-stat">
+            <div class="prog-stat-val b">${total.toLocaleString('id')}</div>
+            <div class="prog-stat-lbl">Total SN</div>
+          </div>
+          <div class="prog-stat">
+            <div class="prog-stat-val p" style="font-size:14px">Rp ${totalRebate.toLocaleString('id')}</div>
+            <div class="prog-stat-lbl">Total Rebate</div>
+          </div>
+        </div>
+        <div class="prog-bar-label">Valid rate: ${pct}% (${valid} / ${total})</div>
+        <div class="prog-bar-wrap"><div class="prog-bar" style="width:${pct}%"></div></div>
+        <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center"
+          onclick="openDrawer('${p.id}')">&#128202; Lihat Detail SN &#8594;</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function filterProgCards(){
+  if(allPrograms.length>0) renderProgCards();
+}
+
+// ── DRAWER (program detail) ──
+function openDrawer(progId){
+  const prog=allPrograms.find(p=>p.id==progId);if(!prog)return;
+  // PATCH: evaluasi ulang status SN khusus periode program ini
+  drawerSNs=allHasil
+    .filter(r=>prog.skuArray.includes(r.kodeBarang.toUpperCase()))
+    .map(r=>deriveRowForProgram(r,prog));
+  document.getElementById('drawer-title').textContent='Detail: '+prog.nama;
+  document.getElementById('drawer-brand-badge').className='badge b-'+prog.brand.toLowerCase();
+  document.getElementById('drawer-brand-badge').textContent=prog.brand;
+  document.getElementById('drawer-fstatus').value='';
+  document.getElementById('drawer-fcari').value='';
+  renderDrawerTable();
+  document.getElementById('drawer').classList.add('open');
+}
+function renderDrawerTable(){
+  const status=document.getElementById('drawer-fstatus').value;
+  const cari=document.getElementById('drawer-fcari').value.toLowerCase();
+  const fx=drawerSNs.filter(r=>{
+    const u=String(r.status||'').toUpperCase();
+    if(status==='VALID'   && u.indexOf('VALID')<0)return false;
+    if(status==='DILUAR'  && u.indexOf('DILUAR')<0)return false;
+    if(status==='DITOLAK' && u.indexOf('DITOLAK')<0)return false;
+    if(status==='TIDAK'   && u.indexOf('TIDAK')<0)return false;
+    if(cari&&![r.snToko,r.noDok,r.keterangan||''].some(v=>String(v).toLowerCase().indexOf(cari)>=0))return false;
+    return true;
+  });
+  const {valid,diluar,rejected,notfound,rebate}=calcStats(drawerSNs);
+  document.getElementById('drawer-sumbar').innerHTML=
+    `<span class="sum-pill sp-valid">Valid: ${valid.toLocaleString('id')}</span>
+     <span class="sum-pill sp-diluar">Di Luar: ${diluar.toLocaleString('id')}</span>
+     <span class="sum-pill sp-rejected">Ditolak: ${rejected.toLocaleString('id')}</span>
+     <span class="sum-pill sp-notfound">Tidak Ditemukan: ${notfound.toLocaleString('id')}</span>
+     <span class="sum-rebate">Total Rebate: Rp ${rebate.toLocaleString('id')}</span>`;
+  const tb=document.getElementById('drawer-tbody');
+  if(!fx.length){tb.innerHTML='<tr><td colspan="9"><div class="empty-state"><div class="ico">&#128269;</div>Tidak ada data</div></td></tr>';return;}
+  tb.innerHTML=fx.map((r,i)=>{
+    const {bc,btx}=statusBadge(r.status);
+    const ketStyle=String(r.status).toUpperCase().indexOf('VALID')>=0?'color:var(--text2)':'color:var(--amber)';
+    return `<tr>
+      <td class="text-sm">${i+1}</td>
+      <td class="text-sm">${r.noDok}</td>
+      <td class="text-sm">${r.kodeBarang}</td>
+      <td class="mono">${r.snToko}</td>
+      <td class="mono">${r.snBrand||'&#8211;'}</td>
+      <td><span class="badge ${bc}">${btx}</span></td>
+      <td class="text-sm wrap" style="${ketStyle}">${r.keterangan||'&#8211;'}</td>
+      <td class="text-sm">${r.tglBrand||'&#8211;'}</td>
+      <td class="text-sm">${r.rebate?'Rp '+Number(r.rebate).toLocaleString('id'):'&#8211;'}</td>
+    </tr>`;
+  }).join('');
+}
+function closeDrawer(){document.getElementById('drawer').classList.remove('open');}
+function drawerClick(e){if(e.target.id==='drawer')closeDrawer();}
+
+// ── SETTING ──
+function loadPrograms(){
+  google.script.run.withSuccessHandler(res=>{
+    const d=JSON.parse(res);if(!d.ok)return;
+    const tb=document.getElementById('setting-tbody');
+    if(!d.rows.length){
+      tb.innerHTML='<tr><td colspan="8"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program.</div></td></tr>';return;
+    }
+    tb.innerHTML=d.rows.map(p=>{
+      const skuArr=p.skuList.split(',');
+      const skuPrev=skuArr.slice(0,2).map(s=>s.trim()).join(', ')+(skuArr.length>2?` +${skuArr.length-2} lagi`:'');
+      const rowJson=JSON.stringify(p).split("'").join('&#39;').split('"').join('&quot;');
+      // PATCH: program yang periodenya sudah lewat -> otomatis tampil non-aktif (Kadaluarsa)
+      const expired=isExpired(p);
+      const aktifBadge=expired
+        ? '<span class="badge b-no" title="Periode berakhir '+p.tglAkhir+' - otomatis non-aktif">&#9200; Kadaluarsa</span>'
+        : '<span class="badge '+(p.aktif==='YES'?'b-yes':'b-no')+'">'+p.aktif+'</span>';
+      return `<tr>
+        <td class="text-sm" style="color:var(--text3)">${p.id}</td>
+        <td class="fw-600">${p.nama}</td>
+        <td><span class="badge b-${p.brand.toLowerCase()}">${p.brand}</span></td>
+        <td class="text-sm">${skuPrev}</td>
+        <td class="text-sm nowrap">${p.tglMulai} &#8211; ${p.tglAkhir}</td>
+        <td class="text-sm nowrap">Rp ${Number(p.rebate).toLocaleString('id')}</td>
+        <td>${aktifBadge}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-outline btn-sm" onclick='openModal(${rowJson})'>Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteProgram('${p.id}')">Hapus</button>
+        </td></tr>`;
+    }).join('');
+  }).withFailureHandler(e=>toast(e.message,'err')).getProgramSettings();
+}
+function openModal(prog){
+  editRow=prog?{id:prog.id,rowIndex:prog.rowIndex}:null;
+  document.getElementById('modal-title').textContent=prog?'Edit Program Rebate':'Tambah Program Rebate';
+  document.getElementById('f-nama').value    =prog?prog.nama    :'';
+  document.getElementById('f-brand-m').value =prog?prog.brand   :'ACER';
+  document.getElementById('f-sku').value     =prog?prog.skuList :'';
+  document.getElementById('f-rebate').value  =prog?prog.rebate  :'';
+  document.getElementById('f-aktif').value   =prog?prog.aktif   :'YES';
+  document.getElementById('f-ket').value     =prog?prog.ket     :'';
+  const toDt=s=>{if(!s)return'';const p=s.split('/');return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:s;};
+  document.getElementById('f-mulai').value=prog?toDt(prog.tglMulai):'';
+  document.getElementById('f-akhir').value=prog?toDt(prog.tglAkhir):'';
+  document.getElementById('overlay').classList.add('open');
+}
+function closeModal(){document.getElementById('overlay').classList.remove('open');}
+function overlayClick(e){if(e.target.id==='overlay')closeModal();}
+function saveProgram(){
+  const nama  =document.getElementById('f-nama').value.trim();
+  const brand =document.getElementById('f-brand-m').value;
+  var _skuRaw =document.getElementById('f-sku').value;
+  _skuRaw=_skuRaw.split(String.fromCharCode(13)).join(',').split(String.fromCharCode(10)).join(',');
+  const sku   =_skuRaw.split(',').map(function(x){return x.trim();}).filter(Boolean).join(', ');
+  const rebate=document.getElementById('f-rebate').value;
+  const mulai =document.getElementById('f-mulai').value;
+  const akhir =document.getElementById('f-akhir').value;
+  const aktif =document.getElementById('f-aktif').value;
+  const ket   =document.getElementById('f-ket').value;
+  if(!nama||!sku||!rebate||!mulai||!akhir){toast('Nama, SKU, rebate, dan periode wajib diisi','err');return;}
+  const fmtDate=s=>s?s.split('-').reverse().join('/'):'';
+  const payload={id:editRow?editRow.id:null,rowIndex:editRow?editRow.rowIndex:null,
+    nama,brand,skuList:sku,tglMulai:fmtDate(mulai),tglAkhir:fmtDate(akhir),rebate:Number(rebate),aktif,ket};
+  google.script.run
+    .withSuccessHandler(res=>{const d=JSON.parse(res);if(d.ok){toast('Program berhasil disimpan','ok');closeModal();loadPrograms();}else toast(d.error,'err');})
+    .withFailureHandler(e=>toast(e.message,'err'))
+    .saveProgram(JSON.stringify(payload));
+}
+function deleteProgram(id){
+  if(!confirm(`Hapus program "${id}"?`))return;
+  google.script.run
+    .withSuccessHandler(res=>{const d=JSON.parse(res);d.ok?(toast('Program dihapus','ok'),loadPrograms()):toast(d.error,'err');})
+    .withFailureHandler(e=>toast(e.message,'err')).deleteProgram(id);
+}
+
+// ── HELPERS ──
+// ── PERIOD-AWARE HELPERS (untuk Detail Program & Setting) ──
+function parseDMY(s){
+  if(!s) return null;
+  const p=String(s).split('/');
+  if(p.length!==3) return null;
+  const d=new Date(+p[2],+p[1]-1,+p[0]);
+  return isNaN(d.getTime())?null:d;
+}
+function snInProgramPeriod(r,p){
+  const d=parseDMY(r.tglBrand); if(!d) return false;
+  const start=parseDMY(p.tglMulai), end=parseDMY(p.tglAkhir);
+  if(!start||!end) return false;
+  d.setHours(12,0,0,0); start.setHours(0,0,0,0); end.setHours(23,59,59,999);
+  return d>=start && d<=end;
+}
+// Hitung ulang status sebuah SN khusus untuk konteks 1 program (berbasis periode).
+// SN dengan tgl brand → valid/diluar ditentukan periode program ini.
+// SN tanpa tgl brand (Tidak Ditemukan / Ditolak brand) → biarkan apa adanya.
+function deriveRowForProgram(r,p){
+  const d=parseDMY(r.tglBrand);
+  let status=r.status, rebate=0;
+  if(d){
+    if(snInProgramPeriod(r,p)){ status='VALID'; rebate=Number(p.rebate)||0; }
+    else { status='DILUAR PERIODE'; rebate=0; }
+  }
+  return Object.assign({},r,{status:status,rebate:rebate,program:p.nama});
+}
+// Program dianggap kadaluarsa jika tgl akhir < hari ini → otomatis non-aktif
+function isExpired(p){
+  const end=parseDMY(p.tglAkhir); if(!end) return false;
+  end.setHours(23,59,59,999);
+  return end < new Date();
+}
+
+function filterRows(rows,brand,status,cari,fields){
+  return rows.filter(r=>{
+    const u=String(r.status||'').toUpperCase();
+    if(brand&&r.brand!==brand)return false;
+    if(status==='VALID'   && u.indexOf('VALID')<0)return false;
+    if(status==='DILUAR'  && u.indexOf('DILUAR')<0)return false;
+    if(status==='DITOLAK' && u.indexOf('DITOLAK')<0)return false;
+    if(status==='TIDAK'   && u.indexOf('TIDAK')<0)return false;
+    if(cari&&!fields.some(f=>String(r[f]||'').toLowerCase().indexOf(cari)>=0))return false;
+    return true;
+  });
+}
+function calcStats(rows){
+  const U=r=>String(r.status||'').toUpperCase();
+  const valid   =rows.filter(r=>U(r).indexOf('VALID')>=0).length;
+  const diluar  =rows.filter(r=>U(r).indexOf('DILUAR')>=0).length;
+  const rejected=rows.filter(r=>U(r).indexOf('DITOLAK')>=0).length;
+  const notfound=rows.filter(r=>U(r).indexOf('TIDAK')>=0).length;
+  const rebate  =rows.filter(r=>U(r).indexOf('VALID')>=0).reduce((s,r)=>s+(Number(r.rebate)||0),0);
+  return{valid,diluar,rejected,notfound,rebate};
+}
+function makeSumBar(v,d,r,n,reb){
+  return `<span class="sum-pill sp-valid">Valid: ${v.toLocaleString('id')}</span>
+    <span class="sum-pill sp-diluar">Di Luar: ${d.toLocaleString('id')}</span>
+    <span class="sum-pill sp-rejected">Ditolak: ${r.toLocaleString('id')}</span>
+    <span class="sum-pill sp-notfound">Tidak Ditemukan: ${n.toLocaleString('id')}</span>
+    <span class="sum-rebate">Total Rebate: Rp ${reb.toLocaleString('id')}</span>`;
+}
+function statusBadge(st){
+  const u=String(st||'').toUpperCase();
+  if(u.indexOf('VALID')>=0) return{bc:'b-valid',    btx:'Valid'};
+  if(u.indexOf('DILUAR')>=0)return{bc:'b-diluar',   btx:'Di Luar Periode'};
+  if(u.indexOf('TIDAK')>=0) return{bc:'b-notfound', btx:'Tidak Ditemukan'};
+  return{bc:'b-rejected',btx:'Ditolak'};
+}
+function parseCSV(text){
+  const NL=String.fromCharCode(10), CR=String.fromCharCode(13);
+  return text.split(NL).map(raw=>{
+    const line=raw.split(CR).join('');
+    const cols=[];let cur='',inQ=false;
+    for(let i=0;i<line.length;i++){const c=line[i];if(c==='"')inQ=!inQ;else if(c===','&&!inQ){cols.push(cur.trim());cur='';}else cur+=c;}
+    cols.push(cur.trim());return cols;
+  }).filter(r=>r.length>1||(r.length===1&&r[0]));
+}
+
+window.onload=loadDashboard;
+</script>
+</body>
+</html>
