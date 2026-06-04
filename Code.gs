@@ -37,6 +37,7 @@ const CFG = {
     HP:        '📋 HP Data',
     HASIL:     '✅ Hasil Validasi',
     SUMMARY:   '📊 Summary Rebate',
+    STOK:      '📦 Stok',
   },
 
   // Data Penjualan / POS  (1-indexed, kolom A=1)
@@ -352,6 +353,31 @@ function clearHasilServer() {
   catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
 }
 
+/**
+ * Ambil data stok dari sheet 📦 Stok
+ * Format sheet: Kolom A = Kode Barang (SKU), B = Nama Barang, C = Stok
+ * Return: map { "SKU_UPPER": { nama, stok } }
+ */
+function getStokData() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const s = ss.getSheetByName(CFG.SHEET.STOK);
+    if (!s || s.getLastRow() < 2) return JSON.stringify({ ok:true, stok:{} });
+
+    const data = s.getRange(2, 1, s.getLastRow()-1, 3).getValues();
+    const stok = {};
+    data.forEach(r => {
+      const sku = r[0].toString().trim().toUpperCase();
+      if (!sku) return;
+      stok[sku] = {
+        nama: r[1].toString(),
+        stok: Number(r[2]) || 0,
+      };
+    });
+    return JSON.stringify({ ok:true, stok });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
 
 // ============================================================
 //  MENU (akses dari Google Sheet)
@@ -374,6 +400,7 @@ function setupSheets() {
   }
   _setupSetting(ss);
   _setupHasil(ss);
+  _setupStok(ss);
   SpreadsheetApp.getUi().alert('Setup selesai. Silakan deploy sebagai Web App untuk mengakses antarmuka upload & validasi.');
 }
 
@@ -424,6 +451,16 @@ function _setupHasil(ss) {
   s.getRange(1,1,1,hdr.length).setValues([hdr])
     .setFontWeight('bold').setBackground('#34a853').setFontColor('#fff');
   s.setFrozenRows(1);
+}
+
+function _setupStok(ss) {
+  const s = ss.getSheetByName(CFG.SHEET.STOK);
+  if (s.getLastRow() > 0) return;
+  const hdr = ['Kode Barang (SKU)', 'Nama Barang', 'Stok'];
+  s.getRange(1,1,1,hdr.length).setValues([hdr])
+    .setFontWeight('bold').setBackground('#9b7cf8').setFontColor('#fff');
+  s.setFrozenRows(1);
+  s.autoResizeColumns(1, hdr.length);
 }
 
 

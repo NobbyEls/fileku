@@ -571,10 +571,10 @@ input::placeholder{color:var(--text3)}
     <table class="ftbl">
       <thead><tr>
         <th>ID Program</th><th>Nama Program</th><th>Brand</th>
-        <th>SKU (preview)</th><th>Periode</th><th>Rebate/Unit</th><th>Aktif</th><th>Aksi</th>
+        <th>Periode</th><th>Rebate/Unit</th><th>Aktif</th><th>Aksi</th>
       </tr></thead>
       <tbody id="setting-tbody">
-        <tr><td colspan="8"><div class="empty-state"><div class="ico">&#8987;</div>Memuat&#8230;</div></td></tr>
+        <tr><td colspan="7"><div class="empty-state"><div class="ico">&#8987;</div>Memuat&#8230;</div></td></tr>
       </tbody>
     </table>
   </div>
@@ -613,6 +613,29 @@ input::placeholder{color:var(--text3)}
           <tbody id="drawer-tbody"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DRAWER: Daftar SKU Program ═══ -->
+<div class="drawer" id="sku-drawer" onclick="if(event.target.id==='sku-drawer')closeSkuDrawer()">
+  <div class="drawer-box" style="max-width:700px">
+    <div class="drawer-head">
+      <span class="badge" id="skud-brand-badge"></span>
+      <div class="drawer-title" id="skud-title">Daftar SKU</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeSkuDrawer()">&#10005; Tutup</button>
+    </div>
+    <div class="drawer-body">
+      <div id="skud-loading" class="empty-state"><span class="spin dk"></span></div>
+      <div class="tbl-wrap" id="skud-table-wrap" style="display:none">
+        <table class="ftbl">
+          <thead><tr>
+            <th>#</th><th>Kode SKU</th><th>Nama Barang</th><th>Rebate/Unit</th><th>Stok</th>
+          </tr></thead>
+          <tbody id="skud-tbody"></tbody>
+        </table>
+      </div>
+      <div id="skud-summary" style="margin-top:12px;display:none"></div>
     </div>
   </div>
 </div>
@@ -956,8 +979,12 @@ function renderProgCards(){
         </div>
         <div class="prog-bar-label">Valid rate: ${pct}% (${valid} / ${total})</div>
         <div class="prog-bar-wrap"><div class="prog-bar" style="width:${pct}%"></div></div>
-        <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center"
-          onclick="openDrawer('${p.id}')">&#128202; Lihat Detail SN &#8594;</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm" style="flex:1;justify-content:center"
+            onclick="openSkuList('${p.id}')">&#128230; Daftar SKU</button>
+          <button class="btn btn-outline btn-sm" style="flex:1;justify-content:center"
+            onclick="openDrawer('${p.id}')">&#128202; Detail SN &#8594;</button>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -1025,24 +1052,77 @@ function renderDrawerTable(){
 function closeDrawer(){document.getElementById('drawer').classList.remove('open');}
 function drawerClick(e){if(e.target.id==='drawer')closeDrawer();}
 
+// ── SKU LIST DRAWER ──
+function openSkuList(progId){
+  var prog=allPrograms.find(function(p){return String(p.id)===String(progId);});
+  if(!prog) return;
+  document.getElementById('skud-title').textContent='Daftar SKU: '+prog.nama;
+  document.getElementById('skud-brand-badge').className='badge b-'+prog.brand.toLowerCase();
+  document.getElementById('skud-brand-badge').textContent=prog.brand;
+  document.getElementById('skud-loading').style.display='block';
+  document.getElementById('skud-table-wrap').style.display='none';
+  document.getElementById('skud-summary').style.display='none';
+  document.getElementById('sku-drawer').classList.add('open');
+  // Load stok data from backend
+  google.script.run
+    .withSuccessHandler(function(res){
+      var d=JSON.parse(res);
+      var stokMap=d.ok?d.stok:{};
+      renderSkuTable(prog,stokMap);
+    })
+    .withFailureHandler(function(){renderSkuTable(prog,{});})
+    .getStokData();
+}
+function renderSkuTable(prog,stokMap){
+  document.getElementById('skud-loading').style.display='none';
+  document.getElementById('skud-table-wrap').style.display='block';
+  document.getElementById('skud-summary').style.display='block';
+  var skuStr=String(prog.skuList||'');
+  var entries=skuStr.split(',').map(function(s){return s.trim();}).filter(Boolean);
+  var defaultReb=Number(prog.rebate)||0;
+  var totalRebate=0, totalStok=0;
+  var tb=document.getElementById('skud-tbody');
+  if(!entries.length){
+    tb.innerHTML='<tr><td colspan="5"><div class="empty-state">Tidak ada SKU terdaftar</div></td></tr>';
+    return;
+  }
+  tb.innerHTML=entries.map(function(entry,i){
+    var sku=entry, rebate=defaultReb;
+    var ci=entry.lastIndexOf(':');
+    if(ci>0){
+      var maybeSku=entry.substring(0,ci).trim();
+      var maybeReb=Number(entry.substring(ci+1).trim());
+      if(!isNaN(maybeReb)&&maybeReb>0){sku=maybeSku;rebate=maybeReb;}
+    }
+    var stokInfo=stokMap[sku.toUpperCase()]||{nama:'-',stok:0};
+    totalRebate+=rebate;
+    totalStok+=stokInfo.stok;
+    return '<tr>'+
+      '<td class="text-sm">'+(i+1)+'</td>'+
+      '<td class="mono">'+sku+'</td>'+
+      '<td class="text-sm">'+(stokInfo.nama||'-')+'</td>'+
+      '<td class="text-sm">Rp '+Number(rebate).toLocaleString('id')+'</td>'+
+      '<td class="text-sm fw-600">'+(stokInfo.stok>0?stokInfo.stok.toLocaleString('id'):'<span style="color:var(--red)">0</span>')+'</td>'+
+    '</tr>';
+  }).join('');
+  document.getElementById('skud-summary').innerHTML=
+    '<div class="sum-bar">'+
+      '<span class="sum-pill sp-valid">Total SKU: '+entries.length+'</span>'+
+      '<span class="sum-pill sp-diluar">Total Stok: '+totalStok.toLocaleString('id')+' unit</span>'+
+    '</div>';
+}
+function closeSkuDrawer(){document.getElementById('sku-drawer').classList.remove('open');}
+
 // ── SETTING ──
 function loadPrograms(){
   google.script.run.withSuccessHandler(res=>{
     const d=JSON.parse(res);if(!d.ok)return;
     const tb=document.getElementById('setting-tbody');
     if(!d.rows.length){
-      tb.innerHTML='<tr><td colspan="8"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program.</div></td></tr>';return;
+      tb.innerHTML='<tr><td colspan="7"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program.</div></td></tr>';return;
     }
     tb.innerHTML=d.rows.map(p=>{
-      const skuArr=p.skuList.split(',').map(s=>s.trim()).filter(Boolean);
-      // Format preview: tampilkan SKU + rebate per item
-      const skuPrev=skuArr.slice(0,3).map(s=>{
-        var ci=s.lastIndexOf(':');
-        if(ci>0){var sk=s.substring(0,ci).trim();var rb=s.substring(ci+1).trim();return sk+' (Rp '+Number(rb).toLocaleString('id')+')';}
-        return s;
-      }).join(', ')+(skuArr.length>3?' +'+( skuArr.length-3)+' lagi':'');
       const rowJson=JSON.stringify(p).split("'").join('&#39;').split('"').join('&quot;');
-      // PATCH: program yang periodenya sudah lewat -> otomatis tampil non-aktif (Kadaluarsa)
       const expired=isExpired(p);
       const aktifBadge=expired
         ? '<span class="badge b-no" title="Periode berakhir '+p.tglAkhir+' - otomatis non-aktif">&#9200; Kadaluarsa</span>'
@@ -1051,7 +1131,6 @@ function loadPrograms(){
         <td class="text-sm" style="color:var(--text3)">${p.id}</td>
         <td class="fw-600">${p.nama}</td>
         <td><span class="badge b-${p.brand.toLowerCase()}">${p.brand}</span></td>
-        <td class="text-sm wrap">${skuPrev}</td>
         <td class="text-sm nowrap">${p.tglMulai} &#8211; ${p.tglAkhir}</td>
         <td class="text-sm nowrap">Rp ${Number(p.rebate).toLocaleString('id')} (default)</td>
         <td>${aktifBadge}</td>
