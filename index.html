@@ -1145,11 +1145,12 @@ function parseDMY(s){
   return isNaN(d.getTime())?null:d;
 }
 function snInProgramPeriod(r,p){
-  // v2.3: Cek berdasarkan tglJual (tgl invoice toko), bukan tglBrand
+  // v2.3: Cek berdasarkan tglJual (tgl invoice toko), fallback tglBrand
+  // Jika kedua tanggal tidak bisa diparse → anggap masuk (jangan exclude)
   var d=parseDMY(r.tglJual)||parseDMY(r.tglBrand);
-  if(!d) return false;
+  if(!d) return true; // tanggal tidak tersedia → include (biar backend yg sudah filter)
   const start=parseDMY(p.tglMulai), end=parseDMY(p.tglAkhir);
-  if(!start||!end) return false;
+  if(!start||!end) return true; // periode tidak valid → include
   d.setHours(12,0,0,0); start.setHours(0,0,0,0); end.setHours(23,59,59,999);
   return d>=start && d<=end;
 }
@@ -1160,8 +1161,11 @@ function deriveRowForProgram(r,p){
   if(!snInProgramPeriod(r,p)) return null; // di luar periode → exclude
   let status=r.status, rebate=0;
   var u=String(status||'').toUpperCase();
-  // Jika status dari backend sudah VALID, hitung rebate per-SKU
-  if(u.indexOf('VALID')>=0||u.indexOf('DITOLAK')<0&&u.indexOf('TIDAK')<0){
+  // Jika SN ditolak/tidak ditemukan → pertahankan status asli
+  if(u.indexOf('DITOLAK')>=0||u.indexOf('TIDAK')>=0){
+    rebate=0;
+  } else {
+    // SN valid atau status lain → hitung rebate per-SKU
     status='VALID';
     rebate=Number(p.rebate)||0;
     var skuKey=String(r.kodeBarang||'').toUpperCase();
@@ -1178,9 +1182,6 @@ function deriveRowForProgram(r,p){
         if(entry.toUpperCase()===skuKey){break;}
       }
     }
-  } else {
-    // DITOLAK atau TIDAK DITEMUKAN → biarkan status, rebate 0
-    rebate=0;
   }
   return Object.assign({},r,{status:status,rebate:rebate,program:p.nama});
 }
