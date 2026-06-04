@@ -453,7 +453,6 @@ function _runValidasi() {
   if (!posData.length) throw new Error('Sheet 📦 Data Penjualan kosong');
 
   // Bangun peta SKU → [{program, rebate}...] untuk lookup O(1)
-  // v2.2: skuMap[SKU_KEY] = [{prog, rebateForSku}, ...]
   const skuMap = {};
   programs.forEach(p => {
     p.skuList.forEach(item => {
@@ -468,17 +467,33 @@ function _runValidasi() {
   brandsNeeded.forEach(b => { brandMaps[b] = _buildBrandMap(b); });
 
   const results = [];
+  // v2.3: Track SN yang sudah diproses per program → deduplicate
+  const processedSN = {};
 
   posData.forEach(item => {
     const skuKey = item.kodeBarang.toUpperCase().trim();
     const matchEntries = skuMap[skuKey];
-    if (!matchEntries) return; // SKU tidak masuk program manapun — lewat
+    if (!matchEntries) return;
 
-    const brand    = matchEntries[0].prog.brand;
+    // v2.3: Cek tgl jual (invoice toko) masuk periode program
+    // Hanya proses jika tgl jual POS masuk dalam periode salah satu program
+    const tglJual = _toDate(item.tanggal);
+    let matchedEntry = null;
+    for (const entry of matchEntries) {
+      if (_inPeriode(tglJual, entry.prog)) { matchedEntry = entry; break; }
+    }
+    if (!matchedEntry) return; // tgl jual di luar periode → SKIP total
+
+    // v2.3: Deduplicate SN per program
+    const snRaw = item.serial.toUpperCase().trim();
+    const dedupeKey = matchedEntry.prog.id + '||' + snRaw;
+    if (processedSN[dedupeKey]) return;
+    processedSN[dedupeKey] = true;
+
+    const brand    = matchedEntry.prog.brand;
     const brandMap = brandMaps[brand] || {};
 
     // Kunci SN: Lenovo pakai 8 digit terakhir
-    const snRaw = item.serial.toUpperCase();
     const snKey = brand === 'LENOVO'
       ? (snRaw.length >= 8 ? snRaw.slice(-8) : snRaw)
       : snRaw;
@@ -487,7 +502,7 @@ function _runValidasi() {
 
     if (!bRow) {
       results.push(_baris(results.length+1, item, brand, snRaw,
-        STATUS.TIDAK_DITEMUKAN, null, null, 0,
+        STATUS.TIDAK_DITEMUKAN, null, matchedEntry.prog, 0,
         `SN tidak ada di data ${brand} | SKU: ${skuKey}`));
       return;
     }
@@ -495,39 +510,25 @@ function _runValidasi() {
     // Validasi status khusus per brand
     if (brand === 'ASUS' && !bRow.comment.toLowerCase().includes('point is valid')) {
       results.push(_baris(results.length+1, item, brand, snRaw,
-        STATUS.DITOLAK, null, null, 0, `Status Asus: "${bRow.comment}"`));
+        STATUS.DITOLAK, null, matchedEntry.prog, 0, `Status Asus: "${bRow.comment}"`));
       return;
     }
     if (brand === 'HP' && !bRow.comment.toLowerCase().includes('valid')) {
       results.push(_baris(results.length+1, item, brand, snRaw,
-        STATUS.DITOLAK, null, null, 0, `SO Validation HP: "${bRow.comment}"`));
+        STATUS.DITOLAK, null, matchedEntry.prog, 0, `SO Validation HP: "${bRow.comment}"`));
       return;
     }
     if (brand === 'LENOVO' && bRow.status.toUpperCase().includes('DITOLAK')) {
       results.push(_baris(results.length+1, item, brand, bRow.snFull || snRaw,
-        STATUS.DITOLAK, null, null, 0, `Status Lenovo: "${bRow.status}"`));
+        STATUS.DITOLAK, null, matchedEntry.prog, 0, `Status Lenovo: "${bRow.status}"`));
       return;
     }
 
     const tglBrand = _getBrandDate(brand, bRow);
-
-    // Cek periode — ambil program pertama yang cocok + rebate per-SKU
-    let validEntry = null;
-    for (const entry of matchEntries) {
-      if (_inPeriode(tglBrand, entry.prog)) { validEntry = entry; break; }
-    }
-
     const snDisplay = brand === 'LENOVO' ? (bRow.snFull || snRaw) : snRaw;
 
-    if (!validEntry) {
-      results.push(_baris(results.length+1, item, brand, snDisplay,
-        STATUS.DILUAR_PERIODE, tglBrand, null, 0,
-        `Tgl brand ${_fmt(tglBrand)} di luar periode | SKU: ${skuKey}`));
-      return;
-    }
-
     results.push(_baris(results.length+1, item, brand, snDisplay,
-      STATUS.VALID, tglBrand, validEntry.prog, validEntry.rebateForSku,
+      STATUS.VALID, tglBrand, matchedEntry.prog, matchedEntry.rebateForSku,
       `SKU: ${skuKey}`));
   });
 

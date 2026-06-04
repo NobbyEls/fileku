@@ -904,9 +904,11 @@ function renderProgCards(){
   }
   grid.innerHTML=progs.map(p=>{
     // PATCH: cocokkan SKU lalu evaluasi ulang status SN khusus periode program ini
-    const sns=allHasil
+    // v2.3: filter by tglJual + deduplicate SN
+    const sns=deduplicateBySN(allHasil
       .filter(r=>p.skuArray.includes(r.kodeBarang.toUpperCase()))
-      .map(r=>deriveRowForProgram(r,p));
+      .map(r=>deriveRowForProgram(r,p))
+      .filter(r=>r!==null));
     const total=sns.length;
     const _up=function(r){return String(r.status||'').toUpperCase();};
     const valid=sns.filter(r=>_up(r).indexOf('VALID')>=0).length;
@@ -963,9 +965,11 @@ function filterProgCards(){
 function openDrawer(progId){
   const prog=allPrograms.find(p=>p.id==progId);if(!prog)return;
   // PATCH: evaluasi ulang status SN khusus periode program ini
-  drawerSNs=allHasil
+  // v2.3: filter by tglJual + deduplicate SN
+  drawerSNs=deduplicateBySN(allHasil
     .filter(r=>prog.skuArray.includes(r.kodeBarang.toUpperCase()))
-    .map(r=>deriveRowForProgram(r,prog));
+    .map(r=>deriveRowForProgram(r,prog))
+    .filter(r=>r!==null));
   document.getElementById('drawer-title').textContent='Detail: '+prog.nama;
   document.getElementById('drawer-brand-badge').className='badge b-'+prog.brand.toLowerCase();
   document.getElementById('drawer-brand-badge').textContent=prog.brand;
@@ -1141,40 +1145,54 @@ function parseDMY(s){
   return isNaN(d.getTime())?null:d;
 }
 function snInProgramPeriod(r,p){
-  const d=parseDMY(r.tglBrand); if(!d) return false;
+  // v2.3: Cek berdasarkan tglJual (tgl invoice toko), bukan tglBrand
+  var d=parseDMY(r.tglJual)||parseDMY(r.tglBrand);
+  if(!d) return false;
   const start=parseDMY(p.tglMulai), end=parseDMY(p.tglAkhir);
   if(!start||!end) return false;
   d.setHours(12,0,0,0); start.setHours(0,0,0,0); end.setHours(23,59,59,999);
   return d>=start && d<=end;
 }
 // Hitung ulang status sebuah SN khusus untuk konteks 1 program (berbasis periode).
-// v2.2: lookup rebate per-SKU dari skuList program.
+// v2.3: filter by tglJual, lookup rebate per-SKU, dan deduplicate.
 function deriveRowForProgram(r,p){
-  const d=parseDMY(r.tglBrand);
+  // Cek tgl jual masuk periode program
+  if(!snInProgramPeriod(r,p)) return null; // di luar periode → exclude
   let status=r.status, rebate=0;
-  if(d){
-    if(snInProgramPeriod(r,p)){
-      status='VALID';
-      // Cari rebate khusus untuk SKU ini
-      rebate=Number(p.rebate)||0; // default
-      var skuKey=String(r.kodeBarang||'').toUpperCase();
-      var skuStr=String(p.skuList||'');
-      var entries=skuStr.split(',');
-      for(var i=0;i<entries.length;i++){
-        var entry=entries[i].trim();
-        var colonIdx=entry.lastIndexOf(':');
-        if(colonIdx>0){
-          var esku=entry.substring(0,colonIdx).trim().toUpperCase();
-          var ereb=Number(entry.substring(colonIdx+1).trim());
-          if(esku===skuKey&&!isNaN(ereb)&&ereb>0){rebate=ereb;break;}
-        }else{
-          if(entry.toUpperCase()===skuKey){break;}
-        }
+  var u=String(status||'').toUpperCase();
+  // Jika status dari backend sudah VALID, hitung rebate per-SKU
+  if(u.indexOf('VALID')>=0||u.indexOf('DITOLAK')<0&&u.indexOf('TIDAK')<0){
+    status='VALID';
+    rebate=Number(p.rebate)||0;
+    var skuKey=String(r.kodeBarang||'').toUpperCase();
+    var skuStr=String(p.skuList||'');
+    var entries=skuStr.split(',');
+    for(var i=0;i<entries.length;i++){
+      var entry=entries[i].trim();
+      var colonIdx=entry.lastIndexOf(':');
+      if(colonIdx>0){
+        var esku=entry.substring(0,colonIdx).trim().toUpperCase();
+        var ereb=Number(entry.substring(colonIdx+1).trim());
+        if(esku===skuKey&&!isNaN(ereb)&&ereb>0){rebate=ereb;break;}
+      }else{
+        if(entry.toUpperCase()===skuKey){break;}
       }
     }
-    else { status='DILUAR PERIODE'; rebate=0; }
+  } else {
+    // DITOLAK atau TIDAK DITEMUKAN → biarkan status, rebate 0
+    rebate=0;
   }
   return Object.assign({},r,{status:status,rebate:rebate,program:p.nama});
+}
+// Deduplicate rows by SN (ambil pertama saja)
+function deduplicateBySN(rows){
+  var seen={};
+  return rows.filter(function(r){
+    var key=String(r.snToko||'').toUpperCase();
+    if(!key||seen[key]) return false;
+    seen[key]=true;
+    return true;
+  });
 }
 // Program dianggap kadaluarsa jika tgl akhir < hari ini → otomatis non-aktif
 function isExpired(p){
