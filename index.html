@@ -1161,11 +1161,8 @@ function deriveRowForProgram(r,p){
   if(!snInProgramPeriod(r,p)) return null; // di luar periode → exclude
   let status=r.status, rebate=0;
   var u=String(status||'').toUpperCase();
-  // Jika SN ditolak/tidak ditemukan → pertahankan status asli
-  if(u.indexOf('DITOLAK')>=0||u.indexOf('TIDAK')>=0){
-    rebate=0;
-  } else {
-    // SN valid atau status lain → hitung rebate per-SKU
+  // Cek VALID dulu → hitung rebate per-SKU
+  if(u.indexOf('VALID')>=0){
     status='VALID';
     rebate=Number(p.rebate)||0;
     var skuKey=String(r.kodeBarang||'').toUpperCase();
@@ -1182,6 +1179,9 @@ function deriveRowForProgram(r,p){
         if(entry.toUpperCase()===skuKey){break;}
       }
     }
+  } else {
+    // Sisanya (DITOLAK, TIDAK DITEMUKAN, dll) → pertahankan status asli, rebate 0
+    rebate=0;
   }
   return Object.assign({},r,{status:status,rebate:rebate,program:p.nama});
 }
