@@ -127,8 +127,8 @@ function getDashboardData() {
     });
 
     const posSheet = ss.getSheetByName(CFG.SHEET.PENJUALAN);
-    // Baris data mulai baris 3 (baris 1=judul, 2=header)
-    const posRows  = posSheet ? Math.max(0, posSheet.getLastRow() - 2) : 0;
+    // Sheet POS tersimpan: baris 1=header, data mulai baris 2
+    const posRows  = posSheet ? Math.max(0, posSheet.getLastRow() - 1) : 0;
 
     // Agregasi hasil validasi
     const hs = ss.getSheetByName(CFG.SHEET.HASIL);
@@ -168,8 +168,8 @@ function getBrandDataInfo() {
       info[b] = { rows: s ? Math.max(0, s.getLastRow()-1) : 0 };
     });
     const ps = ss.getSheetByName(CFG.SHEET.PENJUALAN);
-    // Baris data mulai baris 3 (baris 1=judul, 2=header)
-    info.POS = { rows: ps ? Math.max(0, ps.getLastRow() - 2) : 0 };
+    // Sheet POS tersimpan: baris 1=header, data mulai baris 2
+    info.POS = { rows: ps ? Math.max(0, ps.getLastRow() - 1) : 0 };
     return JSON.stringify({ ok:true, info });
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
 }
@@ -321,25 +321,62 @@ function uploadBrandData(brand, rows) {
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
 }
 
-/** Upload data POS — normalisasi kolom sama seperti brand upload */
+/** Upload data POS
+ * v2.5: Expand multi-SN saat upload — tiap SN jadi 1 baris tersendiri di sheet.
+ * Format file asli: baris 1=judul, baris 2=header, data mulai baris 3.
+ * SN dipisah koma (+ trim spasi) langsung saat upload.
+ * Sheet tersimpan: baris 1=header, data mulai baris 2 (1 baris = 1 SN).
+ */
 function uploadPosData(rows) {
   try {
     if (!rows || rows.length === 0) return JSON.stringify({ ok:true, rowsAdded:0 });
 
-    const maxCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
-    const normalized = rows.map(r => {
+    const c        = CFG.POS;
+    const snCol    = c.SERIAL - 1;      // index 0-based = 22 (kolom W)
+    const hdrIdx   = 1;                 // baris 2 di file = index 1 = header kolom
+    const dataIdx  = c.START_ROW - 1;  // baris 3 di file = index 2 = data pertama
+
+    const header = rows[hdrIdx] || [];
+
+    // Expand: pisah multi-SN per baris data
+    const expanded = [];
+    for (let i = dataIdx; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+
+      const snCell = (r[snCol] || '').toString().trim();
+      if (!snCell) continue;
+      const kode   = (r[c.KODE_BRNG-1] || '').toString().trim();
+      if (!kode) continue;
+
+      // Split SN: pisah koma, trim spasi, buang yang kosong
+      const snList = snCell.split(',').map(s => s.trim()).filter(Boolean);
+
+      snList.forEach(sn => {
+        const newRow    = r.slice();
+        newRow[snCol]   = sn;           // ganti cell SN jadi 1 SN saja
+        expanded.push(newRow);
+      });
+    }
+
+    if (!expanded.length) return JSON.stringify({ ok:true, rowsAdded:0 });
+
+    // Normalisasi panjang kolom agar setValues tidak error
+    const allRows  = [header, ...expanded];
+    const maxCols  = allRows.reduce((m, r) => Math.max(m, r.length), 0);
+    const normalized = allRows.map(r => {
       const p = r.slice();
       while (p.length < maxCols) p.push('');
       return p;
     });
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let s = ss.getSheetByName(CFG.SHEET.PENJUALAN) || ss.insertSheet(CFG.SHEET.PENJUALAN);
+    const s  = ss.getSheetByName(CFG.SHEET.PENJUALAN) || ss.insertSheet(CFG.SHEET.PENJUALAN);
     s.clearContents();
     s.getRange(1, 1, normalized.length, maxCols).setValues(normalized);
     s.getRange(1, 1, 1, maxCols).setFontWeight('bold').setBackground('#e8eaed');
 
-    return JSON.stringify({ ok:true, rowsAdded: normalized.length - 1 });
+    return JSON.stringify({ ok:true, rowsAdded: expanded.length });
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
 }
 
@@ -631,44 +668,23 @@ function _getAllActivePrograms() {
 }
 
 // ── Load semua POS data ────────────────────────────────────
-// v2.4: data mulai baris 3 (baris 1=judul, 2=header)
-//       kolom SN bisa berisi beberapa SN dipisah koma → expand jadi 1 row per SN
+// v2.5: data di sheet sudah 1 baris = 1 SN (di-expand saat upload).
+// Sheet format: baris 1=header, data mulai baris 2.
+// Kolom sesuai CFG.POS (C=3, E=5, ... W=23).
 function _getAllPenjualan() {
   const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.PENJUALAN);
   const c = CFG.POS;
-  const startRow = c.START_ROW || 3;
-  if (!s || s.getLastRow() < startRow) return [];
+  if (!s || s.getLastRow() < 2) return [];
 
-  const numCols = c.SERIAL; // baca sampai kolom W (23)
-  const rows = s.getRange(startRow, 1, s.getLastRow() - startRow + 1, numCols).getValues();
-
-  const result = [];
-  rows.forEach(r => {
-    const snCell = r[c.SERIAL-1].toString().trim();
-    if (!snCell) return; // skip baris tanpa SN
-
-    const kodeBarang = r[c.KODE_BRNG-1].toString().trim();
-    if (!kodeBarang) return; // skip baris tanpa kode barang
-
-    // Split multi-SN: pisah koma, buang spasi, hapus yang kosong
-    const snList = snCell.split(',')
-      .map(sn => sn.trim())
-      .filter(Boolean);
-
-    const base = {
+  return s.getRange(2, 1, s.getLastRow() - 1, c.SERIAL).getValues()
+    .filter(r => r[c.SERIAL-1].toString().trim() && r[c.KODE_BRNG-1].toString().trim())
+    .map(r => ({
       tanggal:    r[c.TANGGAL-1],
       noDok:      r[c.NO_DOK-1],
-      kodeBarang: kodeBarang,
+      kodeBarang: r[c.KODE_BRNG-1].toString().trim(),
       namaBarang: r[c.NAMA_BRNG-1],
-    };
-
-    // Buat 1 baris per SN
-    snList.forEach(sn => {
-      result.push(Object.assign({}, base, { serial: sn }));
-    });
-  });
-
-  return result;
+      serial:     r[c.SERIAL-1].toString().trim(),
+    }));
 }
 
 // ── Bangun lookup map verifikasi per brand ─────────────────
@@ -833,11 +849,19 @@ function _tulisHasil(rows) {
   s.getRange(sr, 10, rows.length, 1).setNumberFormat('DD/MM/YYYY');
   s.getRange(sr, 13, rows.length, 1).setNumberFormat('Rp #,##0');
   s.getRange(sr, 15, rows.length, 1).setNumberFormat('DD/MM/YYYY HH:mm');
-  rows.forEach((r,i) => {
-    const bg = r[8] === STATUS.VALID ? '#e6f4ea'
-             : r[8] === STATUS.DILUAR_PERIODE ? '#fef9c3' : '#fce8e6';
-    s.getRange(sr+i, 1, 1, r.length).setBackground(bg);
+  // v2.5: Batch setBackground — getRangeList bukan per baris
+  const validRanges = [], rejectRanges = [], warningRanges = [];
+  const numCols = rows[0].length;
+  const colEnd = String.fromCharCode(64 + Math.min(numCols, 26)); // 15 → 'O'
+  rows.forEach((r, i) => {
+    const rng = 'A' + (sr+i) + ':' + colEnd + (sr+i);
+    if (r[8] === STATUS.VALID)              validRanges.push(rng);
+    else if (r[8] === STATUS.DILUAR_PERIODE) warningRanges.push(rng);
+    else                                     rejectRanges.push(rng);
   });
+  if (validRanges.length)   s.getRangeList(validRanges).setBackground('#e6f4ea');
+  if (warningRanges.length) s.getRangeList(warningRanges).setBackground('#fef9c3');
+  if (rejectRanges.length)  s.getRangeList(rejectRanges).setBackground('#fce8e6');
 }
 
 function _toDate(val) {
