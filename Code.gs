@@ -41,17 +41,21 @@ const CFG = {
   },
 
   // Data Penjualan / POS  (1-indexed, kolom A=1)
+  // Format: baris 1=judul, baris 2=header, data mulai baris 3
+  // Tiap kolom data diselingi 1 kolom kosong
   POS: {
-    TANGGAL:   1,   // A
-    NO_DOK:    3,   // C
-    PELANGGAN: 5,   // E
-    CABANG:    7,   // G
-    KODE_BRNG: 11,  // K  ← kunci pencocokan SKU
-    NAMA_BRNG: 13,  // M
-    SALES:     15,  // O
-    QTY:       17,  // Q
-    HARGA:     19,  // S
-    SERIAL:    21,  // U  ← serial number utama
+    TANGGAL:   3,   // C
+    NO_DOK:    5,   // E
+    PELANGGAN: 7,   // G
+    CABANG:    9,   // I
+    DEPT:      11,  // K  (Departemen)
+    KODE_BRNG: 13,  // M  ← kunci pencocokan SKU
+    NAMA_BRNG: 15,  // O
+    SALES:     17,  // Q
+    QTY:       19,  // S
+    HARGA:     21,  // U
+    SERIAL:    23,  // W  ← serial number (bisa multi-value dipisah koma)
+    START_ROW: 3,   // data mulai baris 3 (baris 2 = header)
   },
 
   // Verifikasi ACER
@@ -123,7 +127,8 @@ function getDashboardData() {
     });
 
     const posSheet = ss.getSheetByName(CFG.SHEET.PENJUALAN);
-    const posRows  = posSheet ? Math.max(0, posSheet.getLastRow() - 1) : 0;
+    // Baris data mulai baris 3 (baris 1=judul, 2=header)
+    const posRows  = posSheet ? Math.max(0, posSheet.getLastRow() - 2) : 0;
 
     // Agregasi hasil validasi
     const hs = ss.getSheetByName(CFG.SHEET.HASIL);
@@ -163,7 +168,8 @@ function getBrandDataInfo() {
       info[b] = { rows: s ? Math.max(0, s.getLastRow()-1) : 0 };
     });
     const ps = ss.getSheetByName(CFG.SHEET.PENJUALAN);
-    info.POS = { rows: ps ? Math.max(0, ps.getLastRow()-1) : 0 };
+    // Baris data mulai baris 3 (baris 1=judul, 2=header)
+    info.POS = { rows: ps ? Math.max(0, ps.getLastRow() - 2) : 0 };
     return JSON.stringify({ ok:true, info });
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
 }
@@ -625,19 +631,44 @@ function _getAllActivePrograms() {
 }
 
 // ── Load semua POS data ────────────────────────────────────
+// v2.4: data mulai baris 3 (baris 1=judul, 2=header)
+//       kolom SN bisa berisi beberapa SN dipisah koma → expand jadi 1 row per SN
 function _getAllPenjualan() {
   const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.SHEET.PENJUALAN);
-  if (!s || s.getLastRow() < 2) return [];
   const c = CFG.POS;
-  return s.getRange(2, 1, s.getLastRow()-1, 25).getValues()
-    .filter(r => r[c.SERIAL-1].toString().trim())
-    .map(r => ({
+  const startRow = c.START_ROW || 3;
+  if (!s || s.getLastRow() < startRow) return [];
+
+  const numCols = c.SERIAL; // baca sampai kolom W (23)
+  const rows = s.getRange(startRow, 1, s.getLastRow() - startRow + 1, numCols).getValues();
+
+  const result = [];
+  rows.forEach(r => {
+    const snCell = r[c.SERIAL-1].toString().trim();
+    if (!snCell) return; // skip baris tanpa SN
+
+    const kodeBarang = r[c.KODE_BRNG-1].toString().trim();
+    if (!kodeBarang) return; // skip baris tanpa kode barang
+
+    // Split multi-SN: pisah koma, buang spasi, hapus yang kosong
+    const snList = snCell.split(',')
+      .map(sn => sn.trim())
+      .filter(Boolean);
+
+    const base = {
       tanggal:    r[c.TANGGAL-1],
       noDok:      r[c.NO_DOK-1],
-      kodeBarang: r[c.KODE_BRNG-1].toString().trim(),
+      kodeBarang: kodeBarang,
       namaBarang: r[c.NAMA_BRNG-1],
-      serial:     r[c.SERIAL-1].toString().trim(),
-    }));
+    };
+
+    // Buat 1 baris per SN
+    snList.forEach(sn => {
+      result.push(Object.assign({}, base, { serial: sn }));
+    });
+  });
+
+  return result;
 }
 
 // ── Bangun lookup map verifikasi per brand ─────────────────
