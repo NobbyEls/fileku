@@ -355,27 +355,22 @@ input::placeholder{color:var(--text3)}
 
 <!-- ═══ DASHBOARD ═══ -->
 <div class="pane active" id="pane-dashboard">
+  <div class="toolbar">
+    <label class="text-sm" style="color:var(--text2)">Filter Periode &#8212; Dari</label>
+    <input type="date" id="reb-from">
+    <label class="text-sm" style="color:var(--text2)">Sampai</label>
+    <input type="date" id="reb-to">
+    <button class="btn btn-primary btn-sm" onclick="applyDashFilter()">&#128202; Terapkan</button>
+    <button class="btn btn-ghost btn-sm" onclick="resetDashFilter()">Reset</button>
+    <div class="spacer"></div>
+    <span id="dash-filter-info" class="text-sm" style="color:var(--text3)">Menampilkan semua data</span>
+  </div>
   <div class="card-row">
     <div class="card c-blue"><div class="card-label">Total SN Diproses</div><div class="card-value" id="s-total">&#8211;</div></div>
     <div class="card c-green"><div class="card-label">&#10003; Valid</div><div class="card-value" id="s-valid">&#8211;</div></div>
     <div class="card c-amber"><div class="card-label">&#9888; Di Luar Periode</div><div class="card-value" id="s-diluar">&#8211;</div></div>
     <div class="card c-red"><div class="card-label">&#10007; Ditolak / Tidak Ditemukan</div><div class="card-value" id="s-reject">&#8211;</div></div>
     <div class="card c-purple"><div class="card-label">&#128176; Total Rebate</div><div class="card-value" style="color:var(--purple)" id="s-rebate">&#8211;</div></div>
-  </div>
-  <div class="panel mb-16">
-    <div class="section-title">Filter Rebate per Periode Tanggal</div>
-    <div class="toolbar" style="margin-bottom:0">
-      <label class="text-sm" style="color:var(--text2)">Dari</label>
-      <input type="date" id="reb-from">
-      <label class="text-sm" style="color:var(--text2)">Sampai</label>
-      <input type="date" id="reb-to">
-      <button class="btn btn-primary btn-sm" onclick="hitungRebatePeriode()">&#128202; Hitung</button>
-      <button class="btn btn-ghost btn-sm" onclick="resetRebatePeriode()">Reset</button>
-      <div class="spacer"></div>
-    </div>
-    <div id="reb-result" class="sum-bar" style="margin-top:14px;margin-bottom:0">
-      <span class="text-sm" style="color:var(--text3)">Pilih rentang tanggal lalu klik Hitung. Berdasarkan tanggal jual (POS) untuk SN yang Valid.</span>
-    </div>
   </div>
   <div class="panel">
     <div class="section-title">Program Aktif</div>
@@ -804,12 +799,42 @@ function ensureHasil(cb){ loadAppData(false, cb); }
 // ── DASHBOARD ──
 function loadDashboard(){ loadAppData(false, renderDashboard); }
 
-// Hitung total perolehan rebate untuk 1 program (SN valid yang di-assign ke program ini)
-function _perolehanRebate(prog){
+// State filter dashboard
+var dashFilter = { from:null, to:null };
+
+// Hitung statistik kartu dari allHasil, dengan opsi rentang tanggal
+function _computeCardStats(from, to){
+  var st = { total:0, valid:0, diluar:0, ditolak:0, tidakDitemukan:0, totalRebate:0 };
+  (allHasil||[]).forEach(function(r){
+    if(from && to){
+      var d = parseDMY(r.tglJual) || parseDMY(r.tglBrand);
+      if(!d) return;
+      d.setHours(12,0,0,0);
+      if(d < from || d > to) return;
+    }
+    var s = String(r.status||'').toUpperCase();
+    var rb = Number(r.rebate)||0;
+    st.total++;
+    if(s.indexOf('VALID')>=0)        { st.valid++; st.totalRebate += rb; }
+    else if(s.indexOf('DILUAR')>=0)    st.diluar++;
+    else if(s.indexOf('DITOLAK')>=0)   st.ditolak++;
+    else if(s.indexOf('TIDAK')>=0)     st.tidakDitemukan++;
+  });
+  return st;
+}
+
+// Hitung total perolehan rebate untuk 1 program (SN valid di program ini), dengan opsi rentang
+function _perolehanRebate(prog, from, to){
   var total=0;
   (allHasil||[]).forEach(function(r){
     if(String(r.status||'').toUpperCase().indexOf('VALID')<0) return;
     if(String(r.program||'')!==String(prog.nama)) return;
+    if(from && to){
+      var d = parseDMY(r.tglJual) || parseDMY(r.tglBrand);
+      if(!d) return;
+      d.setHours(12,0,0,0);
+      if(d < from || d > to) return;
+    }
     total+=Number(r.rebate)||0;
   });
   return total;
@@ -817,20 +842,20 @@ function _perolehanRebate(prog){
 
 function renderDashboard(){
   if(!APP.loaded){ return; }
-  var s = APP.summary || {total:0,valid:0,diluar:0,ditolak:0,tidakDitemukan:0,totalRebate:0};
-  document.getElementById('s-total').textContent =Number(s.total||0).toLocaleString('id');
-  document.getElementById('s-valid').textContent =Number(s.valid||0).toLocaleString('id');
-  document.getElementById('s-diluar').textContent=Number(s.diluar||0).toLocaleString('id');
-  document.getElementById('s-reject').textContent=Number((s.ditolak||0)+(s.tidakDitemukan||0)).toLocaleString('id');
-  document.getElementById('s-rebate').textContent='Rp '+Number(s.totalRebate||0).toLocaleString('id');
-  // Program aktif (filter YES + belum kadaluarsa) dari cache + perolehan rebate
+  var st = _computeCardStats(dashFilter.from, dashFilter.to);
+  document.getElementById('s-total').textContent =Number(st.total).toLocaleString('id');
+  document.getElementById('s-valid').textContent =Number(st.valid).toLocaleString('id');
+  document.getElementById('s-diluar').textContent=Number(st.diluar).toLocaleString('id');
+  document.getElementById('s-reject').textContent=Number(st.ditolak+st.tidakDitemukan).toLocaleString('id');
+  document.getElementById('s-rebate').textContent='Rp '+Number(st.totalRebate).toLocaleString('id');
+  // Program aktif + perolehan rebate (ikut filter periode jika aktif)
   var aktif = allPrograms.filter(function(p){ return String(p.aktif).toUpperCase()==='YES' && !isExpired(p); });
   var tb=document.getElementById('prog-tbody');
   if(!aktif.length){
     tb.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program aktif</div></td></tr>';
   }else{
     tb.innerHTML=aktif.map(function(p){
-      var perolehan=_perolehanRebate(p);
+      var perolehan=_perolehanRebate(p, dashFilter.from, dashFilter.to);
       return '<tr>'+
         '<td class="fw-600">'+p.nama+'</td>'+
         '<td><span class="badge b-'+String(p.brand).toLowerCase()+'">'+p.brand+'</span></td>'+
@@ -842,43 +867,25 @@ function renderDashboard(){
   }
 }
 
-// ── FILTER REBATE PER PERIODE TANGGAL ──
-function hitungRebatePeriode(){
+// Terapkan filter periode → update kartu + tabel
+function applyDashFilter(){
   var fromVal=document.getElementById('reb-from').value;
   var toVal=document.getElementById('reb-to').value;
-  var res=document.getElementById('reb-result');
   if(!fromVal||!toVal){ toast('Isi tanggal Dari dan Sampai','err'); return; }
-  // input type=date → format YYYY-MM-DD
   var from=new Date(fromVal); from.setHours(0,0,0,0);
   var to=new Date(toVal); to.setHours(23,59,59,999);
   if(from>to){ toast('Tanggal Dari tidak boleh setelah Sampai','err'); return; }
-
-  var totalRebate=0, jumlahSN=0;
-  var perBrand={};
-  (allHasil||[]).forEach(function(r){
-    if(String(r.status||'').toUpperCase().indexOf('VALID')<0) return;
-    var d=parseDMY(r.tglJual)||parseDMY(r.tglBrand);
-    if(!d) return;
-    d.setHours(12,0,0,0);
-    if(d<from||d>to) return;
-    var rb=Number(r.rebate)||0;
-    totalRebate+=rb; jumlahSN++;
-    var b=String(r.brand||'-');
-    perBrand[b]=(perBrand[b]||0)+rb;
-  });
-
-  var brandPills=Object.keys(perBrand).map(function(b){
-    return '<span class="sum-pill" style="background:rgba(79,156,249,.12);color:var(--blue);border-color:rgba(79,156,249,.2)">'+b+': Rp '+perBrand[b].toLocaleString('id')+'</span>';
-  }).join('');
-  res.innerHTML=
-    '<span class="sum-pill sp-valid">SN Valid: '+jumlahSN.toLocaleString('id')+'</span>'+
-    brandPills+
-    '<span class="sum-rebate">Total Rebate: Rp '+totalRebate.toLocaleString('id')+'</span>';
+  dashFilter.from=from; dashFilter.to=to;
+  var fmt=function(d){return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();};
+  document.getElementById('dash-filter-info').innerHTML='<span style="color:var(--blue)">Periode: '+fmt(from)+' &#8211; '+fmt(to)+'</span>';
+  renderDashboard();
 }
-function resetRebatePeriode(){
+function resetDashFilter(){
+  dashFilter.from=null; dashFilter.to=null;
   document.getElementById('reb-from').value='';
   document.getElementById('reb-to').value='';
-  document.getElementById('reb-result').innerHTML='<span class="text-sm" style="color:var(--text3)">Pilih rentang tanggal lalu klik Hitung. Berdasarkan tanggal jual (POS) untuk SN yang Valid.</span>';
+  document.getElementById('dash-filter-info').textContent='Menampilkan semua data';
+  renderDashboard();
 }
 
 // ── DATA INFO ──
