@@ -630,7 +630,7 @@ input::placeholder{color:var(--text3)}
       <div class="tbl-wrap" id="skud-table-wrap" style="display:none">
         <table class="ftbl">
           <thead><tr>
-            <th>#</th><th>Kode SKU</th><th>Nama Barang</th><th>Rebate/Unit</th><th>Stok</th>
+            <th>#</th><th>Kode SKU</th><th>Rebate/Unit</th><th>Total Stok</th><th>Belum Claim</th><th>Sudah Claim</th>
           </tr></thead>
           <tbody id="skud-tbody"></tbody>
         </table>
@@ -1080,10 +1080,10 @@ function renderSkuTable(prog,stokMap){
   var skuStr=String(prog.skuList||'');
   var entries=skuStr.split(',').map(function(s){return s.trim();}).filter(Boolean);
   var defaultReb=Number(prog.rebate)||0;
-  var totalRebate=0, totalStok=0;
+  var totStok=0, totBelum=0, totSudah=0;
   var tb=document.getElementById('skud-tbody');
   if(!entries.length){
-    tb.innerHTML='<tr><td colspan="5"><div class="empty-state">Tidak ada SKU terdaftar</div></td></tr>';
+    tb.innerHTML='<tr><td colspan="6"><div class="empty-state">Tidak ada SKU terdaftar</div></td></tr>';
     return;
   }
   tb.innerHTML=entries.map(function(entry,i){
@@ -1094,21 +1094,26 @@ function renderSkuTable(prog,stokMap){
       var maybeReb=Number(entry.substring(ci+1).trim());
       if(!isNaN(maybeReb)&&maybeReb>0){sku=maybeSku;rebate=maybeReb;}
     }
-    var stokInfo=stokMap[sku.toUpperCase()]||{nama:'-',stok:0};
-    totalRebate+=rebate;
-    totalStok+=stokInfo.stok;
+    var st=stokMap[sku.toUpperCase()]||{belumClaim:0,sudahClaim:0,totalStok:0};
+    totStok+=st.totalStok; totBelum+=st.belumClaim; totSudah+=st.sudahClaim;
+    var stokColor=st.totalStok>0?'color:var(--green)':'color:var(--red)';
+    var belumColor=st.belumClaim>0?'color:var(--blue)':'color:var(--text2)';
+    var sudahColor=st.sudahClaim>0?'color:var(--amber)':'color:var(--text2)';
     return '<tr>'+
       '<td class="text-sm">'+(i+1)+'</td>'+
       '<td class="mono">'+sku+'</td>'+
-      '<td class="text-sm">'+(stokInfo.nama||'-')+'</td>'+
       '<td class="text-sm">Rp '+Number(rebate).toLocaleString('id')+'</td>'+
-      '<td class="text-sm fw-600">'+(stokInfo.stok>0?stokInfo.stok.toLocaleString('id'):'<span style="color:var(--red)">0</span>')+'</td>'+
+      '<td class="text-sm fw-600" style="'+stokColor+'">'+st.totalStok.toLocaleString('id')+'</td>'+
+      '<td class="text-sm" style="'+belumColor+'">'+st.belumClaim.toLocaleString('id')+'</td>'+
+      '<td class="text-sm" style="'+sudahColor+'">'+st.sudahClaim.toLocaleString('id')+'</td>'+
     '</tr>';
   }).join('');
   document.getElementById('skud-summary').innerHTML=
     '<div class="sum-bar">'+
-      '<span class="sum-pill sp-valid">Total SKU: '+entries.length+'</span>'+
-      '<span class="sum-pill sp-diluar">Total Stok: '+totalStok.toLocaleString('id')+' unit</span>'+
+      '<span class="sum-pill" style="background:rgba(52,211,153,.12);color:var(--green);border-color:rgba(52,211,153,.2)">Total Stok: '+totStok.toLocaleString('id')+'</span>'+
+      '<span class="sum-pill" style="background:rgba(79,156,249,.12);color:var(--blue);border-color:rgba(79,156,249,.2)">Belum Claim: '+totBelum.toLocaleString('id')+'</span>'+
+      '<span class="sum-pill" style="background:rgba(251,191,36,.12);color:var(--amber);border-color:rgba(251,191,36,.2)">Sudah Claim: '+totSudah.toLocaleString('id')+'</span>'+
+      '<span class="sum-pill sp-notfound">Total SKU: '+entries.length+' item</span>'+
     '</div>';
 }
 function closeSkuDrawer(){document.getElementById('sku-drawer').classList.remove('open');}

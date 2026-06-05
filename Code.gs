@@ -355,8 +355,8 @@ function clearHasilServer() {
 
 /**
  * Ambil data stok dari sheet 📦 Stok
- * Format sheet: Kolom A = Kode Barang (SKU), B = Nama Barang, C = Stok
- * Return: map { "SKU_UPPER": { nama, stok } }
+ * Format sheet: Kolom A = Kode Barang (SKU), B = Belum Claim, C = Sudah Claim, D = Total Stok
+ * Return: map { "SKU_UPPER": { belumClaim, sudahClaim, totalStok } }
  */
 function getStokData() {
   try {
@@ -364,14 +364,15 @@ function getStokData() {
     const s = ss.getSheetByName(CFG.SHEET.STOK);
     if (!s || s.getLastRow() < 2) return JSON.stringify({ ok:true, stok:{} });
 
-    const data = s.getRange(2, 1, s.getLastRow()-1, 3).getValues();
+    const data = s.getRange(2, 1, s.getLastRow()-1, 4).getValues();
     const stok = {};
     data.forEach(r => {
       const sku = r[0].toString().trim().toUpperCase();
       if (!sku) return;
       stok[sku] = {
-        nama: r[1].toString(),
-        stok: Number(r[2]) || 0,
+        belumClaim: Number(r[1]) || 0,
+        sudahClaim: Number(r[2]) || 0,
+        totalStok:  Number(r[3]) || 0,
       };
     });
     return JSON.stringify({ ok:true, stok });
@@ -456,7 +457,7 @@ function _setupHasil(ss) {
 function _setupStok(ss) {
   const s = ss.getSheetByName(CFG.SHEET.STOK);
   if (s.getLastRow() > 0) return;
-  const hdr = ['Kode Barang (SKU)', 'Nama Barang', 'Stok'];
+  const hdr = ['Kode Barang (SKU)', 'Belum Claim', 'Sudah Claim', 'Total Stok'];
   s.getRange(1,1,1,hdr.length).setValues([hdr])
     .setFontWeight('bold').setBackground('#9b7cf8').setFontColor('#fff');
   s.setFrozenRows(1);
