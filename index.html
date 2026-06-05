@@ -482,7 +482,7 @@ input::placeholder{color:var(--text3)}
 <div class="pane" id="pane-hasil">
   <div class="toolbar">
     <button class="btn btn-success" id="run-btn" onclick="runValidasi()">&#9654; Jalankan Validasi</button>
-    <button class="btn btn-ghost btn-sm" onclick="loadHasil()">&#8635; Refresh</button>
+    <button class="btn btn-ghost btn-sm" onclick="forceReload('hasil')">&#8635; Update Data</button>
     <div class="spacer"></div>
     <select id="f-brand" onchange="renderHasil()">
       <option value="">Semua Brand</option><option>ACER</option><option>ASUS</option><option>LENOVO</option><option>HP</option>
@@ -519,7 +519,7 @@ input::placeholder{color:var(--text3)}
     <div class="card c-purple"><div class="card-label">&#8253; Tidak Ditemukan</div><div class="card-value" id="lc-notfound">&#8211;</div></div>
   </div>
   <div class="toolbar">
-    <button class="btn btn-ghost btn-sm" onclick="loadLaporan()">&#8635; Refresh</button>
+    <button class="btn btn-ghost btn-sm" onclick="forceReload('laporan')">&#8635; Update Data</button>
     <div class="spacer"></div>
     <select id="lap-brand" onchange="renderLaporan()">
       <option value="">Semua Brand</option><option>ACER</option><option>ASUS</option><option>LENOVO</option><option>HP</option>
@@ -551,7 +551,9 @@ input::placeholder{color:var(--text3)}
 <!-- ═══ DETAIL PROGRAM ═══ -->
 <div class="pane" id="pane-program">
   <div class="toolbar">
-    <button class="btn btn-primary" onclick="loadProgramPage()">&#8635; Muat Data Program</button>
+    <button class="btn btn-primary" onclick="loadProgramPage()">&#128200; Muat Data Program</button>
+    <button class="btn btn-ghost btn-sm" onclick="forceReload('program')">&#8635; Update dari Server</button>
+    <span id="sync-label" class="text-sm" style="margin-left:4px"></span>
     <div class="spacer"></div>
     <input type="search" id="prog-cari" placeholder="Cari nama program&#8230;" oninput="filterProgCards()">
   </div>
@@ -565,7 +567,7 @@ input::placeholder{color:var(--text3)}
   <div class="toolbar">
     <button class="btn btn-primary" onclick="openModal()">+ Tambah Program</button>
     <div class="spacer"></div>
-    <button class="btn btn-ghost btn-sm" onclick="loadPrograms()">&#8635; Refresh</button>
+    <button class="btn btn-ghost btn-sm" onclick="forceReload('setting')">&#8635; Update Data</button>
   </div>
   <div class="tbl-wrap">
     <table class="ftbl">
@@ -682,6 +684,91 @@ let allPrograms = [];
 let drawerSNs   = [];
 let pendingData = {};
 let editRow     = null;
+let stokMap     = {};
+
+// ════════════════════════════════════════════════════════════
+//  CACHE LAYER (v2.6) — 1 panggilan server, simpan di localStorage
+//  Data dipakai dari cache sampai user pencet "Update Data".
+// ════════════════════════════════════════════════════════════
+var APP = { loaded:false, programs:[], hasil:[], stok:{}, summary:null, brandRows:{}, posRows:0, ts:0 };
+var CACHE_KEY = 'rebateValidator_appData';
+
+function _saveCache(){
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(APP)); } catch(e){ /* quota/sandbox: abaikan */ }
+}
+function _loadCacheFromStorage(){
+  try {
+    var raw = localStorage.getItem(CACHE_KEY);
+    if(!raw) return false;
+    var o = JSON.parse(raw);
+    if(!o || !o.loaded) return false;
+    APP = o;
+    return true;
+  } catch(e){ return false; }
+}
+function invalidateCache(){
+  APP.loaded = false;
+  try { localStorage.removeItem(CACHE_KEY); } catch(e){}
+}
+// Sync APP → variabel global yang dipakai fungsi render
+function syncFromApp(){
+  allHasil = APP.hasil || [];
+  stokMap  = APP.stok  || {};
+  allPrograms = (APP.programs||[]).map(function(p){
+    var copy = {}; for(var k in p){ if(p.hasOwnProperty(k)) copy[k]=p[k]; }
+    copy.skuArray = String(p.skuList||'').split(',').map(function(s){
+      var t=s.trim(); var ci=t.lastIndexOf(':');
+      if(ci>0){ var sk=t.substring(0,ci).trim(); var rb=t.substring(ci+1).trim(); if(!isNaN(Number(rb))&&Number(rb)>0) return sk.toUpperCase(); }
+      return t.toUpperCase();
+    }).filter(Boolean);
+    return copy;
+  });
+}
+function updateSyncLabel(){
+  var el = document.getElementById('sync-label');
+  if(!el) return;
+  if(APP.ts){
+    var d = new Date(APP.ts);
+    var hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
+    el.textContent = 'Data per: ' + String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear()+' '+hh+':'+mm;
+  } else { el.textContent=''; }
+}
+var _syncing = false;
+function showSyncing(on){ _syncing = on; }
+
+/**
+ * Loader pusat. force=true → ambil ulang dari server (tombol Update).
+ * force=false → pakai cache (memori → localStorage), instan tanpa server.
+ */
+function loadAppData(force, cb){
+  if(!force && APP.loaded){ if(cb)cb(); return; }
+  if(!force && _loadCacheFromStorage()){ syncFromApp(); updateSyncLabel(); if(cb)cb(); return; }
+  showSyncing(true);
+  google.script.run
+    .withSuccessHandler(function(res){
+      showSyncing(false);
+      var d; try{ d=JSON.parse(res); }catch(e){ toast('Gagal membaca data','err'); if(cb)cb(); return; }
+      if(!d.ok){ toast(d.error||'Gagal ambil data','err'); if(cb)cb(); return; }
+      APP = { loaded:true, programs:d.programs||[], hasil:d.hasil||[], stok:d.stok||{},
+              summary:d.summary, brandRows:d.brandRows||{}, posRows:d.posRows||0, ts:Date.now() };
+      syncFromApp(); _saveCache(); updateSyncLabel();
+      if(cb)cb();
+    })
+    .withFailureHandler(function(e){ showSyncing(false); toast(e.message,'err'); if(cb)cb(); })
+    .getAppData();
+}
+// Tombol "Update Data" — paksa ambil ulang dari server lalu render tab aktif
+function forceReload(tab){
+  invalidateCache();
+  loadAppData(true, function(){
+    if(tab==='hasil')        renderHasil();
+    else if(tab==='laporan') renderLaporan();
+    else if(tab==='program') renderProgCards();
+    else if(tab==='setting') renderSettingTable();
+    else if(tab==='dashboard') renderDashboard();
+    toast('Data berhasil diperbarui dari server','ok');
+  });
+}
 
 // ── TABS ──
 function gotoTab(name,btn){
@@ -706,44 +793,40 @@ function toast(msg,type='info'){
   setTimeout(()=>el.remove(),3800);
 }
 
-// ── SHARED: load hasil data (silent, no spinner) ──
-function ensureHasil(cb){
-  if(allHasil.length>0){cb();return;}
-  google.script.run
-    .withSuccessHandler(res=>{const d=JSON.parse(res);if(d.ok)allHasil=d.rows;cb();})
-    .withFailureHandler(()=>cb())
-    .getHasilValidasiData();
-}
+// ── SHARED: pastikan data sudah ada (pakai cache) ──
+function ensureHasil(cb){ loadAppData(false, cb); }
 
 // ── DASHBOARD ──
-function loadDashboard(){
-  google.script.run.withSuccessHandler(res=>{
-    try{
-      const d=JSON.parse(res);if(!d.ok)return toast(d.error,'err');
-      const s=d.summary;
-      document.getElementById('s-total').textContent =s.total.toLocaleString('id');
-      document.getElementById('s-valid').textContent =s.valid.toLocaleString('id');
-      document.getElementById('s-diluar').textContent=s.diluar.toLocaleString('id');
-      document.getElementById('s-reject').textContent=(s.ditolak+s.tidakDitemukan).toLocaleString('id');
-      document.getElementById('s-rebate').textContent='Rp '+s.totalRebate.toLocaleString('id');
-      document.getElementById('cnt-pos').textContent   =(d.posRows||0).toLocaleString('id')+' baris';
-      document.getElementById('cnt-acer').textContent  =(d.brandRows.ACER||0).toLocaleString('id')+' baris';
-      document.getElementById('cnt-asus').textContent  =(d.brandRows.ASUS||0).toLocaleString('id')+' baris';
-      document.getElementById('cnt-lenovo').textContent=(d.brandRows.LENOVO||0).toLocaleString('id')+' baris';
-      document.getElementById('cnt-hp').textContent    =(d.brandRows.HP||0).toLocaleString('id')+' baris';
-      const tb=document.getElementById('prog-tbody');
-      if(!d.programs.length){
-        tb.innerHTML='<tr><td colspan="5"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program aktif</div></td></tr>';
-      }else{
-        tb.innerHTML=d.programs.map(p=>`<tr>
-          <td class="fw-600">${p.nama}</td>
-          <td><span class="badge b-${p.brand.toLowerCase()}">${p.brand}</span></td>
-          <td>${p.skuCount} SKU</td>
-          <td class="text-sm">${p.periode}</td>
-          <td>Rp ${Number(p.rebate).toLocaleString('id')}</td></tr>`).join('');
-      }
-    }catch(e){toast('Error memuat dashboard','err');}
-  }).withFailureHandler(e=>toast(e.message,'err')).getDashboardData();
+function loadDashboard(){ loadAppData(false, renderDashboard); }
+function renderDashboard(){
+  if(!APP.loaded){ return; }
+  var s = APP.summary || {total:0,valid:0,diluar:0,ditolak:0,tidakDitemukan:0,totalRebate:0};
+  document.getElementById('s-total').textContent =Number(s.total||0).toLocaleString('id');
+  document.getElementById('s-valid').textContent =Number(s.valid||0).toLocaleString('id');
+  document.getElementById('s-diluar').textContent=Number(s.diluar||0).toLocaleString('id');
+  document.getElementById('s-reject').textContent=Number((s.ditolak||0)+(s.tidakDitemukan||0)).toLocaleString('id');
+  document.getElementById('s-rebate').textContent='Rp '+Number(s.totalRebate||0).toLocaleString('id');
+  var br = APP.brandRows||{};
+  document.getElementById('cnt-pos').textContent   =Number(APP.posRows||0).toLocaleString('id')+' baris';
+  document.getElementById('cnt-acer').textContent  =Number(br.ACER||0).toLocaleString('id')+' baris';
+  document.getElementById('cnt-asus').textContent  =Number(br.ASUS||0).toLocaleString('id')+' baris';
+  document.getElementById('cnt-lenovo').textContent=Number(br.LENOVO||0).toLocaleString('id')+' baris';
+  document.getElementById('cnt-hp').textContent    =Number(br.HP||0).toLocaleString('id')+' baris';
+  // Program aktif (filter YES + belum kadaluarsa) dari cache
+  var aktif = allPrograms.filter(function(p){ return String(p.aktif).toUpperCase()==='YES' && !isExpired(p); });
+  var tb=document.getElementById('prog-tbody');
+  if(!aktif.length){
+    tb.innerHTML='<tr><td colspan="5"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program aktif</div></td></tr>';
+  }else{
+    tb.innerHTML=aktif.map(function(p){
+      return '<tr>'+
+        '<td class="fw-600">'+p.nama+'</td>'+
+        '<td><span class="badge b-'+String(p.brand).toLowerCase()+'">'+p.brand+'</span></td>'+
+        '<td>'+(p.skuArray?p.skuArray.length:0)+' SKU</td>'+
+        '<td class="text-sm">'+p.tglMulai+' &#8211; '+p.tglAkhir+'</td>'+
+        '<td>Rp '+Number(p.rebate).toLocaleString('id')+'</td></tr>';
+    }).join('');
+  }
 }
 
 // ── DATA INFO ──
@@ -796,7 +879,7 @@ function doUpload(brand){
   if(pb)pb.style.display='block';if(btn)btn.disabled=true;
   const onOk=res=>{
     if(pb)pb.style.display='none';const d=JSON.parse(res);
-    if(d.ok){toast(`Upload ${brand} berhasil: ${d.rowsAdded} baris`,'ok');delete pendingData[brand];loadDataInfo();}
+    if(d.ok){toast(`Upload ${brand} berhasil: ${d.rowsAdded} baris`,'ok');delete pendingData[brand];invalidateCache();loadDataInfo();}
     else{toast('Upload gagal: '+d.error,'err');if(btn)btn.disabled=false;}
   };
   const onErr=e=>{if(pb)pb.style.display='none';toast(e.message,'err');if(btn)btn.disabled=false;};
@@ -819,7 +902,7 @@ function runValidasi(){
     .withSuccessHandler(res=>{
       btn.disabled=false;btn.innerHTML='&#9654; Jalankan Validasi';
       const d=JSON.parse(res);
-      if(d.ok){toast(`Validasi selesai: ${d.count} SN diproses`,'ok');allHasil=[];loadHasil();}
+      if(d.ok){toast(`Validasi selesai: ${d.count} SN diproses`,'ok');invalidateCache();loadAppData(true,renderHasil);}
       else toast(d.error,'err');
     })
     .withFailureHandler(e=>{btn.disabled=false;btn.innerHTML='&#9654; Jalankan Validasi';toast(e.message,'err');})
@@ -829,10 +912,10 @@ function runValidasi(){
 // ── HASIL VALIDASI ──
 function loadHasil(){
   const tb=document.getElementById('hasil-tbody');
-  tb.innerHTML='<tr><td colspan="10"><div class="empty-state"><span class="spin dk"></span></div></td></tr>';
-  google.script.run
-    .withSuccessHandler(res=>{const d=JSON.parse(res);if(!d.ok){toast(d.error,'err');return;}allHasil=d.rows;renderHasil();})
-    .withFailureHandler(e=>toast(e.message,'err')).getHasilValidasiData();
+  if(!APP.loaded){
+    tb.innerHTML='<tr><td colspan="10"><div class="empty-state"><span class="spin dk"></span></div></td></tr>';
+  }
+  loadAppData(false, renderHasil);
 }
 function renderHasil(){
   const brand=document.getElementById('f-brand').value;
@@ -900,23 +983,10 @@ function renderLaporan(){
 // ── DETAIL PROGRAM ──
 function loadProgramPage(){
   const grid=document.getElementById('prog-cards');
-  grid.innerHTML='<div style="grid-column:1/-1"><div class="empty-state"><span class="spin dk"></span></div></div>';
-  // Load programs then hasil
-  google.script.run
-    .withSuccessHandler(res=>{
-      const d=JSON.parse(res);if(!d.ok){toast(d.error,'err');return;}
-      allPrograms=d.rows.map(p=>({
-        ...p,
-        skuArray:p.skuList.split(',').map(s=>{
-          var t=s.trim();var ci=t.lastIndexOf(':');
-          if(ci>0){var sk=t.substring(0,ci).trim();var rb=t.substring(ci+1).trim();if(!isNaN(Number(rb))&&Number(rb)>0)return sk.toUpperCase();}
-          return t.toUpperCase();
-        }).filter(Boolean)
-      }));
-      ensureHasil(renderProgCards);
-    })
-    .withFailureHandler(e=>toast(e.message,'err'))
-    .getProgramSettings();
+  if(!APP.loaded){
+    grid.innerHTML='<div style="grid-column:1/-1"><div class="empty-state"><span class="spin dk"></span></div></div>';
+  }
+  loadAppData(false, renderProgCards);
 }
 function renderProgCards(){
   const cari=document.getElementById('prog-cari').value.toLowerCase();
@@ -1059,19 +1129,9 @@ function openSkuList(progId){
   document.getElementById('skud-title').textContent='Daftar SKU: '+prog.nama;
   document.getElementById('skud-brand-badge').className='badge b-'+prog.brand.toLowerCase();
   document.getElementById('skud-brand-badge').textContent=prog.brand;
-  document.getElementById('skud-loading').style.display='block';
-  document.getElementById('skud-table-wrap').style.display='none';
-  document.getElementById('skud-summary').style.display='none';
   document.getElementById('sku-drawer').classList.add('open');
-  // Load stok data from backend
-  google.script.run
-    .withSuccessHandler(function(res){
-      var d=JSON.parse(res);
-      var stokMap=d.ok?d.stok:{};
-      renderSkuTable(prog,stokMap);
-    })
-    .withFailureHandler(function(){renderSkuTable(prog,{});})
-    .getStokData();
+  // v2.6: pakai stok dari cache (instan, tanpa panggil server)
+  renderSkuTable(prog, stokMap || {});
 }
 function renderSkuTable(prog,stokMap){
   document.getElementById('skud-loading').style.display='none';
@@ -1119,32 +1179,31 @@ function renderSkuTable(prog,stokMap){
 function closeSkuDrawer(){document.getElementById('sku-drawer').classList.remove('open');}
 
 // ── SETTING ──
-function loadPrograms(){
-  google.script.run.withSuccessHandler(res=>{
-    const d=JSON.parse(res);if(!d.ok)return;
-    const tb=document.getElementById('setting-tbody');
-    if(!d.rows.length){
-      tb.innerHTML='<tr><td colspan="7"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program.</div></td></tr>';return;
-    }
-    tb.innerHTML=d.rows.map(p=>{
-      const rowJson=JSON.stringify(p).split("'").join('&#39;').split('"').join('&quot;');
-      const expired=isExpired(p);
-      const aktifBadge=expired
-        ? '<span class="badge b-no" title="Periode berakhir '+p.tglAkhir+' - otomatis non-aktif">&#9200; Kadaluarsa</span>'
-        : '<span class="badge '+(p.aktif==='YES'?'b-yes':'b-no')+'">'+p.aktif+'</span>';
-      return `<tr>
-        <td class="text-sm" style="color:var(--text3)">${p.id}</td>
-        <td class="fw-600">${p.nama}</td>
-        <td><span class="badge b-${p.brand.toLowerCase()}">${p.brand}</span></td>
-        <td class="text-sm nowrap">${p.tglMulai} &#8211; ${p.tglAkhir}</td>
-        <td class="text-sm nowrap">Rp ${Number(p.rebate).toLocaleString('id')} (default)</td>
-        <td>${aktifBadge}</td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-outline btn-sm" onclick='openModal(${rowJson})'>Edit</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteProgram('${p.id}')">Hapus</button>
-        </td></tr>`;
-    }).join('');
-  }).withFailureHandler(e=>toast(e.message,'err')).getProgramSettings();
+function loadPrograms(){ loadAppData(false, renderSettingTable); }
+function renderSettingTable(){
+  var rows = APP.programs || [];
+  const tb=document.getElementById('setting-tbody');
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="7"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program.</div></td></tr>';return;
+  }
+  tb.innerHTML=rows.map(function(p){
+    const rowJson=JSON.stringify(p).split("'").join('&#39;').split('"').join('&quot;');
+    const expired=isExpired(p);
+    const aktifBadge=expired
+      ? '<span class="badge b-no" title="Periode berakhir '+p.tglAkhir+' - otomatis non-aktif">&#9200; Kadaluarsa</span>'
+      : '<span class="badge '+(p.aktif==='YES'?'b-yes':'b-no')+'">'+p.aktif+'</span>';
+    return '<tr>'+
+      '<td class="text-sm" style="color:var(--text3)">'+p.id+'</td>'+
+      '<td class="fw-600">'+p.nama+'</td>'+
+      '<td><span class="badge b-'+String(p.brand).toLowerCase()+'">'+p.brand+'</span></td>'+
+      '<td class="text-sm nowrap">'+p.tglMulai+' &#8211; '+p.tglAkhir+'</td>'+
+      '<td class="text-sm nowrap">Rp '+Number(p.rebate).toLocaleString('id')+' (default)</td>'+
+      '<td>'+aktifBadge+'</td>'+
+      '<td style="white-space:nowrap">'+
+        '<button class="btn btn-outline btn-sm" onclick=\'openModal('+rowJson+')\'>Edit</button> '+
+        '<button class="btn btn-danger btn-sm" onclick="deleteProgram(\''+p.id+'\')">Hapus</button>'+
+      '</td></tr>';
+  }).join('');
 }
 function openModal(prog){
   editRow=prog?{id:prog.id,rowIndex:prog.rowIndex}:null;
@@ -1215,14 +1274,14 @@ function saveProgram(){
   const payload={id:editRow?editRow.id:null,rowIndex:editRow?editRow.rowIndex:null,
     nama,brand,skuList:sku,tglMulai:fmtDate(mulai),tglAkhir:fmtDate(akhir),rebate:Number(rebate),aktif,ket};
   google.script.run
-    .withSuccessHandler(res=>{const d=JSON.parse(res);if(d.ok){toast('Program berhasil disimpan','ok');closeModal();loadPrograms();}else toast(d.error,'err');})
+    .withSuccessHandler(res=>{const d=JSON.parse(res);if(d.ok){toast('Program berhasil disimpan','ok');closeModal();invalidateCache();loadAppData(true,renderSettingTable);}else toast(d.error,'err');})
     .withFailureHandler(e=>toast(e.message,'err'))
     .saveProgram(JSON.stringify(payload));
 }
 function deleteProgram(id){
   if(!confirm(`Hapus program "${id}"?`))return;
   google.script.run
-    .withSuccessHandler(res=>{const d=JSON.parse(res);d.ok?(toast('Program dihapus','ok'),loadPrograms()):toast(d.error,'err');})
+    .withSuccessHandler(res=>{const d=JSON.parse(res);d.ok?(toast('Program dihapus','ok'),invalidateCache(),loadAppData(true,renderSettingTable)):toast(d.error,'err');})
     .withFailureHandler(e=>toast(e.message,'err')).deleteProgram(id);
 }
 

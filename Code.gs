@@ -422,6 +422,84 @@ function getStokData() {
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
 }
 
+/**
+ * v2.6: GABUNGAN — ambil SEMUA data yang dibutuhkan Web App dalam 1 round-trip.
+ * Mengganti 3 panggilan terpisah (getProgramSettings + getHasilValidasiData + getStokData).
+ * Frontend meng-cache hasilnya di localStorage agar tidak perlu fetch ulang tiap buka tab.
+ */
+function getAppData() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // ── Programs (raw setting rows) ──
+    let programs = [];
+    const sset = ss.getSheetByName(CFG.SHEET.SETTING);
+    const cs = CFG.SETTING;
+    if (sset && sset.getLastRow() >= cs.START_ROW) {
+      const n = sset.getLastRow() - cs.START_ROW + 1;
+      programs = sset.getRange(cs.START_ROW, 1, n, 9).getValues()
+        .filter(r => r[0])
+        .map((r, i) => ({
+          rowIndex: i + 1,
+          id:       r[cs.ID_PROG-1],
+          nama:     r[cs.NAMA_PROG-1],
+          brand:    r[cs.BRAND-1],
+          skuList:  r[cs.SKU_LIST-1],
+          tglMulai: r[cs.TGL_MULAI-1] instanceof Date ? _fmt(r[cs.TGL_MULAI-1]) : r[cs.TGL_MULAI-1],
+          tglAkhir: r[cs.TGL_AKHIR-1] instanceof Date ? _fmt(r[cs.TGL_AKHIR-1]) : r[cs.TGL_AKHIR-1],
+          rebate:   r[cs.REBATE-1],
+          aktif:    r[cs.AKTIF-1],
+          ket:      r[cs.KET-1],
+        }));
+    }
+
+    // ── Hasil validasi (semua baris) + summary sekaligus ──
+    const hasil = [];
+    const summary = { total:0, valid:0, diluar:0, ditolak:0, tidakDitemukan:0, totalRebate:0 };
+    const hs = ss.getSheetByName(CFG.SHEET.HASIL);
+    if (hs && hs.getLastRow() > 1) {
+      hs.getRange(2, 1, hs.getLastRow()-1, 15).getValues().forEach(r => {
+        if (!r[0]) return;
+        const st = r[8].toString();
+        const rb = Number(r[12]) || 0;
+        summary.total++;
+        if (st === STATUS.VALID)              { summary.valid++; summary.totalRebate += rb; }
+        else if (st === STATUS.DILUAR_PERIODE)  summary.diluar++;
+        else if (st === STATUS.DITOLAK)         summary.ditolak++;
+        else if (st === STATUS.TIDAK_DITEMUKAN) summary.tidakDitemukan++;
+        hasil.push({
+          no:r[0], tglJual:r[1] instanceof Date?_fmt(r[1]):r[1], noDok:r[2], brand:r[3],
+          kodeBarang:r[4], namaBarang:r[5], snToko:r[6], snBrand:r[7], status:r[8],
+          tglBrand:r[9] instanceof Date?_fmt(r[9]):(r[9]||''), program:r[10], periode:r[11],
+          rebate:r[12], keterangan:r[13],
+        });
+      });
+    }
+
+    // ── Stok map ──
+    const stok = {};
+    const sstok = ss.getSheetByName(CFG.SHEET.STOK);
+    if (sstok && sstok.getLastRow() >= 2) {
+      sstok.getRange(2, 1, sstok.getLastRow()-1, 4).getValues().forEach(r => {
+        const sku = r[0].toString().trim().toUpperCase();
+        if (!sku) return;
+        stok[sku] = { belumClaim:Number(r[1])||0, sudahClaim:Number(r[2])||0, totalStok:Number(r[3])||0 };
+      });
+    }
+
+    // ── Info baris upload ──
+    const brandRows = {};
+    ['ACER','ASUS','LENOVO','HP'].forEach(b => {
+      const s = ss.getSheetByName(CFG.SHEET[b]);
+      brandRows[b] = s ? Math.max(0, s.getLastRow()-1) : 0;
+    });
+    const ps = ss.getSheetByName(CFG.SHEET.PENJUALAN);
+    const posRows = ps ? Math.max(0, ps.getLastRow()-1) : 0;
+
+    return JSON.stringify({ ok:true, programs, hasil, stok, summary, brandRows, posRows });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
 
 // ============================================================
 //  MENU (akses dari Google Sheet)
