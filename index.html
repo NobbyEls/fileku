@@ -658,19 +658,24 @@ input::placeholder{color:var(--text3)}
 <div class="overlay" id="overlay" onclick="overlayClick(event)">
   <div class="modal">
     <div class="modal-title" id="modal-title">Tambah Program Rebate</div>
-    <div class="form-row"><label>Nama Program</label>
-      <input type="text" id="f-nama" placeholder="Contoh: Acer A715 Promo Q2 2026"></div>
     <div class="form-2">
+      <div class="form-row"><label>Nama Program</label>
+        <input type="text" id="f-nama" placeholder="Contoh: Acer A715 Promo Q2 2026"></div>
       <div class="form-row"><label>Brand</label>
         <select id="f-brand-m"><option value="ACER">ACER</option><option value="ASUS">ASUS</option><option value="LENOVO">LENOVO</option><option value="HP">HP</option></select></div>
-      <div class="form-row"><label>Rebate Default (Rp)</label>
-        <input type="number" id="f-rebate" placeholder="75000">
-        <div class="form-hint">Dipakai jika SKU tidak punya rebate sendiri.</div></div>
     </div>
-    <div class="form-row"><label>SKU List + Rebate per SKU</label>
-      <div id="sku-rows"></div>
-      <button type="button" class="btn btn-outline btn-sm" style="margin-top:8px" onclick="addSkuRow('','')">+ Tambah SKU</button>
-      <div class="form-hint">Tiap SKU bisa punya rebate sendiri. Kosongkan rebate untuk pakai nilai default.</div>
+    <input type="hidden" id="f-rebate" value="0">
+    <div class="form-row">
+      <label>SKU List + Rebate per SKU</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button type="button" class="btn btn-outline btn-sm" onclick="addSkuRow('','')">+ Tambah SKU Manual</button>
+        <button type="button" class="btn btn-success btn-sm" onclick="document.getElementById('fi-sku-import').click()">&#128194; Import dari Excel</button>
+        <input type="file" id="fi-sku-import" accept=".csv,.xlsx,.xls" style="display:none" onchange="importSkuFile(this)">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="clearAllSkuRows()">Hapus Semua</button>
+      </div>
+      <div class="form-hint" style="margin-bottom:8px">Format Excel: Kolom A = Kode SKU, Kolom B = Nominal Rebate. Atau input manual satu per satu.</div>
+      <div id="sku-rows" style="max-height:250px;overflow-y:auto"></div>
+      <div id="sku-count" class="text-sm" style="margin-top:6px;color:var(--text3)"></div>
     </div>
     <div class="form-2">
       <div class="form-row"><label>Tanggal Mulai</label><input type="date" id="f-mulai"></div>
@@ -1295,7 +1300,7 @@ function renderSettingTable(){
       '<td class="fw-600">'+p.nama+'</td>'+
       '<td><span class="badge b-'+String(p.brand).toLowerCase()+'">'+p.brand+'</span></td>'+
       '<td class="text-sm nowrap">'+p.tglMulai+' &#8211; '+p.tglAkhir+'</td>'+
-      '<td class="text-sm nowrap">Rp '+Number(p.rebate).toLocaleString('id')+' (default)</td>'+
+      '<td class="text-sm nowrap">Rp '+Number(p.rebate).toLocaleString('id')+'</td>'+
       '<td>'+aktifBadge+'</td>'+
       '<td style="white-space:nowrap">'+
         '<button class="btn btn-outline btn-sm" onclick=\'openModal('+rowJson+')\'>Edit</button> '+
@@ -1308,7 +1313,7 @@ function openModal(prog){
   document.getElementById('modal-title').textContent=prog?'Edit Program Rebate':'Tambah Program Rebate';
   document.getElementById('f-nama').value    =prog?prog.nama    :'';
   document.getElementById('f-brand-m').value =prog?prog.brand   :'ACER';
-  document.getElementById('f-rebate').value  =prog?prog.rebate  :'';
+  document.getElementById('f-rebate').value  =prog?prog.rebate  :'0';
   document.getElementById('f-aktif').value   =prog?prog.aktif   :'YES';
   document.getElementById('f-ket').value     =prog?prog.ket     :'';
   const toDt=s=>{if(!s)return'';const p=s.split('/');return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:s;};
@@ -1327,9 +1332,8 @@ function openModal(prog){
       }
       addSkuRow(entry,'');
     });
-  }else{
-    addSkuRow('','');
   }
+  updateSkuCount();
   document.getElementById('overlay').classList.add('open');
 }
 function addSkuRow(sku,rebate){
@@ -1337,9 +1341,57 @@ function addSkuRow(sku,rebate){
   var row=document.createElement('div');
   row.style.cssText='display:flex;gap:8px;margin-bottom:6px;align-items:center';
   row.innerHTML='<input type="text" placeholder="Kode SKU" style="flex:2" value="'+String(sku||'').split('"').join('&quot;')+'">'+
-    '<input type="number" placeholder="Rebate (kosong=default)" style="flex:1;min-width:120px" value="'+(rebate||'')+'">'+
-    '<button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" style="flex-shrink:0;padding:4px 8px">&#10005;</button>';
+    '<input type="number" placeholder="Rebate" style="flex:1;min-width:120px" value="'+(rebate||'')+'">'+
+    '<button type="button" class="btn btn-danger btn-sm" onclick="removeSkuRow(this)" style="flex-shrink:0;padding:4px 8px">&#10005;</button>';
   container.appendChild(row);
+  updateSkuCount();
+}
+function removeSkuRow(btn){ btn.parentElement.remove(); updateSkuCount(); }
+function clearAllSkuRows(){ document.getElementById('sku-rows').innerHTML=''; updateSkuCount(); }
+function updateSkuCount(){
+  var rows=document.getElementById('sku-rows').children;
+  var el=document.getElementById('sku-count');
+  el.textContent=rows.length>0?(rows.length+' SKU terdaftar'):'Belum ada SKU';
+}
+function importSkuFile(input){
+  if(!input.files[0]) return;
+  var file=input.files[0];
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var rows;
+    var nm=file.name.toLowerCase();
+    if(nm.endsWith('.xlsx')||nm.endsWith('.xls')){
+      var wb=XLSX.read(e.target.result,{type:'array'});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true});
+    }else{
+      // CSV
+      var text=new TextDecoder().decode(new Uint8Array(e.target.result));
+      var NL=String.fromCharCode(10), CR=String.fromCharCode(13);
+      rows=text.split(NL).map(function(line){
+        return line.split(CR).join('').split(',').map(function(c){return c.trim();});
+      });
+    }
+    // Skip header jika baris pertama bukan angka di kolom B
+    var startIdx=0;
+    if(rows.length>0){
+      var firstB=rows[0][1];
+      if(firstB && isNaN(Number(firstB))) startIdx=1;
+    }
+    var added=0;
+    for(var i=startIdx;i<rows.length;i++){
+      var r=rows[i];
+      if(!r||!r[0]) continue;
+      var sku=String(r[0]).trim();
+      var reb=r[1]?String(r[1]).trim().split('.').join('').split(',').join(''):'';
+      if(!sku) continue;
+      addSkuRow(sku, reb);
+      added++;
+    }
+    toast('Import berhasil: '+added+' SKU ditambahkan','ok');
+    input.value='';
+  };
+  reader.readAsArrayBuffer(file);
 }
 function closeModal(){document.getElementById('overlay').classList.remove('open');}
 function overlayClick(e){if(e.target.id==='overlay')closeModal();}
@@ -1367,7 +1419,7 @@ function saveProgram(){
     }
   }
   var sku=skuItems.join(', ');
-  if(!nama||!sku||!rebate||!mulai||!akhir){toast('Nama, minimal 1 SKU, rebate default, dan periode wajib diisi','err');return;}
+  if(!nama||!sku||!mulai||!akhir){toast('Nama, minimal 1 SKU, dan periode wajib diisi','err');return;}
   const fmtDate=s=>s?s.split('-').reverse().join('/'):'';
   const payload={id:editRow?editRow.id:null,rowIndex:editRow?editRow.rowIndex:null,
     nama,brand,skuList:sku,tglMulai:fmtDate(mulai),tglAkhir:fmtDate(akhir),rebate:Number(rebate),aktif,ket};
