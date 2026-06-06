@@ -334,6 +334,16 @@ input::placeholder{color:var(--text3)}
 
 /* Kolom lebar minimum: Drawer (9 col) */
 .ftbl.drw th:nth-child(7){min-width:220px}  /* Alasan */
+
+/* TOOLTIP on card hover */
+.card-tip{display:none;position:absolute;top:100%;left:0;right:0;z-index:50;
+  background:rgba(10,14,30,.97);border:1px solid var(--border2);border-radius:var(--r2);
+  padding:10px 12px;font-size:11px;color:var(--text);line-height:1.6;
+  box-shadow:0 8px 24px rgba(0,0,0,.6);max-height:200px;overflow-y:auto;margin-top:4px}
+.card-tip.show{display:block}
+.card-tip table{width:100%;font-size:11px;border-collapse:collapse}
+.card-tip td{padding:2px 6px;border-bottom:1px solid rgba(255,255,255,.06)}
+.card-tip td:last-child{text-align:right;font-weight:600}
 </style>
 </head>
 <body>
@@ -360,17 +370,20 @@ input::placeholder{color:var(--text3)}
     <input type="date" id="reb-from">
     <label class="text-sm" style="color:var(--text2)">Sampai</label>
     <input type="date" id="reb-to">
+    <select id="dash-brand" style="min-width:100px">
+      <option value="">Semua Brand</option><option>ACER</option><option>ASUS</option><option>LENOVO</option><option>HP</option>
+    </select>
     <button class="btn btn-primary btn-sm" onclick="applyDashFilter()">&#128202; Terapkan</button>
     <button class="btn btn-ghost btn-sm" onclick="resetDashFilter()">Reset</button>
     <div class="spacer"></div>
     <span id="dash-filter-info" class="text-sm" style="color:var(--text3)">Menampilkan semua data</span>
   </div>
   <div class="card-row">
-    <div class="card c-blue"><div class="card-label">Total SN Diproses</div><div class="card-value" id="s-total">&#8211;</div></div>
-    <div class="card c-green"><div class="card-label">&#10003; Valid</div><div class="card-value" id="s-valid">&#8211;</div></div>
-    <div class="card c-amber"><div class="card-label">&#9888; Di Luar Periode</div><div class="card-value" id="s-diluar">&#8211;</div></div>
-    <div class="card c-red"><div class="card-label">&#10007; Ditolak / Tidak Ditemukan</div><div class="card-value" id="s-reject">&#8211;</div></div>
-    <div class="card c-purple"><div class="card-label">&#128176; Total Rebate</div><div class="card-value" style="color:var(--purple)" id="s-rebate">&#8211;</div></div>
+    <div class="card c-blue" style="cursor:pointer;position:relative" onmouseenter="showTip('tip-total')" onmouseleave="hideTip('tip-total')"><div class="card-label">Total SN Diproses</div><div class="card-value" id="s-total">&#8211;</div><div class="card-tip" id="tip-total"></div></div>
+    <div class="card c-green" style="cursor:pointer;position:relative" onmouseenter="showTip('tip-valid')" onmouseleave="hideTip('tip-valid')"><div class="card-label">&#10003; Valid</div><div class="card-value" id="s-valid">&#8211;</div><div class="card-tip" id="tip-valid"></div></div>
+    <div class="card c-amber" style="cursor:pointer;position:relative" onmouseenter="showTip('tip-diluar')" onmouseleave="hideTip('tip-diluar')"><div class="card-label">&#9888; Di Luar Periode</div><div class="card-value" id="s-diluar">&#8211;</div><div class="card-tip" id="tip-diluar"></div></div>
+    <div class="card c-red" style="cursor:pointer;position:relative" onmouseenter="showTip('tip-reject')" onmouseleave="hideTip('tip-reject')"><div class="card-label">&#10007; Ditolak / Tidak Ditemukan</div><div class="card-value" id="s-reject">&#8211;</div><div class="card-tip" id="tip-reject"></div></div>
+    <div class="card c-purple" style="cursor:pointer;position:relative" onmouseenter="showTip('tip-rebate')" onmouseleave="hideTip('tip-rebate')"><div class="card-label">&#128176; Total Rebate</div><div class="card-value" style="color:var(--purple)" id="s-rebate">&#8211;</div><div class="card-tip" id="tip-rebate"></div></div>
   </div>
   <div class="panel">
     <div class="section-title">Program Aktif</div>
@@ -769,18 +782,27 @@ function ensureHasil(cb){ loadAppData(false, cb); }
 function loadDashboard(){ loadAppData(false, renderDashboard); }
 
 // State filter dashboard
-var dashFilter = { from:null, to:null };
+var dashFilter = { from:null, to:null, brand:'' };
 
-// Hitung statistik kartu dari allHasil, dengan opsi rentang tanggal
-function _computeCardStats(from, to){
-  var st = { total:0, valid:0, diluar:0, ditolak:0, tidakDitemukan:0, totalRebate:0 };
-  (allHasil||[]).forEach(function(r){
+// Filter allHasil by period + brand
+function _filteredHasil(){
+  var from=dashFilter.from, to=dashFilter.to, brand=dashFilter.brand;
+  return (allHasil||[]).filter(function(r){
+    if(brand && String(r.brand||'').toUpperCase()!==brand.toUpperCase()) return false;
     if(from && to){
       var d = parseDMY(r.tglJual) || parseDMY(r.tglBrand);
-      if(!d) return;
+      if(!d) return false;
       d.setHours(12,0,0,0);
-      if(d < from || d > to) return;
+      if(d < from || d > to) return false;
     }
+    return true;
+  });
+}
+
+// Hitung statistik kartu
+function _computeCardStats(rows){
+  var st = { total:0, valid:0, diluar:0, ditolak:0, tidakDitemukan:0, totalRebate:0 };
+  rows.forEach(function(r){
     var s = String(r.status||'').toUpperCase();
     var rb = Number(r.rebate)||0;
     st.total++;
@@ -792,18 +814,59 @@ function _computeCardStats(from, to){
   return st;
 }
 
-// Hitung total perolehan rebate untuk 1 program (SN valid di program ini), dengan opsi rentang
-function _perolehanRebate(prog, from, to){
+// Hitung breakdown per program untuk tooltip
+function _breakdownByProgram(rows, statusFilter){
+  var map={};
+  rows.forEach(function(r){
+    var s=String(r.status||'').toUpperCase();
+    var match=false;
+    if(statusFilter==='ALL') match=true;
+    else if(statusFilter==='VALID' && s.indexOf('VALID')>=0) match=true;
+    else if(statusFilter==='DILUAR' && s.indexOf('DILUAR')>=0) match=true;
+    else if(statusFilter==='REJECT' && (s.indexOf('DITOLAK')>=0||s.indexOf('TIDAK')>=0)) match=true;
+    if(!match) return;
+    var prog=String(r.program||'(Tanpa Program)');
+    map[prog]=(map[prog]||0)+1;
+  });
+  return map;
+}
+
+// Hitung breakdown rebate per brand+program untuk tooltip rebate
+function _breakdownRebate(rows){
+  var map={};
+  rows.forEach(function(r){
+    if(String(r.status||'').toUpperCase().indexOf('VALID')<0) return;
+    var brand=String(r.brand||'-');
+    var prog=String(r.program||'-');
+    var key=brand+' | '+prog;
+    map[key]=(map[key]||0)+(Number(r.rebate)||0);
+  });
+  return map;
+}
+
+// Build tooltip HTML table from breakdown map
+function _tipTable(map, isRupiah){
+  var keys=Object.keys(map);
+  if(!keys.length) return '<div style="color:var(--text3)">Tidak ada data</div>';
+  keys.sort(function(a,b){return map[b]-map[a];});
+  var html='<table>';
+  keys.forEach(function(k){
+    var val=isRupiah?('Rp '+map[k].toLocaleString('id')):map[k].toLocaleString('id');
+    html+='<tr><td>'+k+'</td><td>'+val+'</td></tr>';
+  });
+  html+='</table>';
+  return html;
+}
+
+function showTip(id){ var el=document.getElementById(id); if(el) el.classList.add('show'); }
+function hideTip(id){ var el=document.getElementById(id); if(el) el.classList.remove('show'); }
+
+// Hitung total perolehan rebate untuk 1 program, ikut filter
+function _perolehanRebate(prog, filteredRows){
   var total=0;
-  (allHasil||[]).forEach(function(r){
+  filteredRows.forEach(function(r){
     if(String(r.status||'').toUpperCase().indexOf('VALID')<0) return;
     if(String(r.program||'')!==String(prog.nama)) return;
-    if(from && to){
-      var d = parseDMY(r.tglJual) || parseDMY(r.tglBrand);
-      if(!d) return;
-      d.setHours(12,0,0,0);
-      if(d < from || d > to) return;
-    }
     total+=Number(r.rebate)||0;
   });
   return total;
@@ -811,20 +874,29 @@ function _perolehanRebate(prog, from, to){
 
 function renderDashboard(){
   if(!APP.loaded){ return; }
-  var st = _computeCardStats(dashFilter.from, dashFilter.to);
+  var filtered = _filteredHasil();
+  var st = _computeCardStats(filtered);
   document.getElementById('s-total').textContent =Number(st.total).toLocaleString('id');
   document.getElementById('s-valid').textContent =Number(st.valid).toLocaleString('id');
   document.getElementById('s-diluar').textContent=Number(st.diluar).toLocaleString('id');
   document.getElementById('s-reject').textContent=Number(st.ditolak+st.tidakDitemukan).toLocaleString('id');
   document.getElementById('s-rebate').textContent='Rp '+Number(st.totalRebate).toLocaleString('id');
-  // Program aktif + perolehan rebate (ikut filter periode jika aktif)
+
+  // Build tooltip content
+  document.getElementById('tip-total').innerHTML=_tipTable(_breakdownByProgram(filtered,'ALL'),false);
+  document.getElementById('tip-valid').innerHTML=_tipTable(_breakdownByProgram(filtered,'VALID'),false);
+  document.getElementById('tip-diluar').innerHTML=_tipTable(_breakdownByProgram(filtered,'DILUAR'),false);
+  document.getElementById('tip-reject').innerHTML=_tipTable(_breakdownByProgram(filtered,'REJECT'),false);
+  document.getElementById('tip-rebate').innerHTML=_tipTable(_breakdownRebate(filtered),true);
+
+  // Program aktif + perolehan rebate (ikut filter)
   var aktif = allPrograms.filter(function(p){ return String(p.aktif).toUpperCase()==='YES' && !isExpired(p); });
   var tb=document.getElementById('prog-tbody');
   if(!aktif.length){
     tb.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program aktif</div></td></tr>';
   }else{
     tb.innerHTML=aktif.map(function(p){
-      var perolehan=_perolehanRebate(p, dashFilter.from, dashFilter.to);
+      var perolehan=_perolehanRebate(p, filtered);
       return '<tr>'+
         '<td class="fw-600">'+p.nama+'</td>'+
         '<td><span class="badge b-'+String(p.brand).toLowerCase()+'">'+p.brand+'</span></td>'+
@@ -836,23 +908,32 @@ function renderDashboard(){
   }
 }
 
-// Terapkan filter periode → update kartu + tabel
+// Terapkan filter periode + brand → update kartu + tabel
 function applyDashFilter(){
   var fromVal=document.getElementById('reb-from').value;
   var toVal=document.getElementById('reb-to').value;
-  if(!fromVal||!toVal){ toast('Isi tanggal Dari dan Sampai','err'); return; }
-  var from=new Date(fromVal); from.setHours(0,0,0,0);
-  var to=new Date(toVal); to.setHours(23,59,59,999);
-  if(from>to){ toast('Tanggal Dari tidak boleh setelah Sampai','err'); return; }
-  dashFilter.from=from; dashFilter.to=to;
-  var fmt=function(d){return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();};
-  document.getElementById('dash-filter-info').innerHTML='<span style="color:var(--blue)">Periode: '+fmt(from)+' &#8211; '+fmt(to)+'</span>';
+  var brand=document.getElementById('dash-brand').value;
+  var from=null, to=null;
+  if(fromVal && toVal){
+    from=new Date(fromVal); from.setHours(0,0,0,0);
+    to=new Date(toVal); to.setHours(23,59,59,999);
+    if(from>to){ toast('Tanggal Dari tidak boleh setelah Sampai','err'); return; }
+  }
+  dashFilter.from=from; dashFilter.to=to; dashFilter.brand=brand;
+  var info=[];
+  if(from && to){
+    var fmt=function(d){return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();};
+    info.push(fmt(from)+' &#8211; '+fmt(to));
+  }
+  if(brand) info.push(brand);
+  document.getElementById('dash-filter-info').innerHTML=info.length?('<span style="color:var(--blue)">'+info.join(' | ')+'</span>'):'Menampilkan semua data';
   renderDashboard();
 }
 function resetDashFilter(){
-  dashFilter.from=null; dashFilter.to=null;
+  dashFilter.from=null; dashFilter.to=null; dashFilter.brand='';
   document.getElementById('reb-from').value='';
   document.getElementById('reb-to').value='';
+  document.getElementById('dash-brand').value='';
   document.getElementById('dash-filter-info').textContent='Menampilkan semua data';
   renderDashboard();
 }
