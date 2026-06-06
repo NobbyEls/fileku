@@ -389,7 +389,7 @@ input::placeholder{color:var(--text3)}
     <div class="section-title">Program Aktif</div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Nama Program</th><th>Brand</th><th>Jumlah SKU</th><th>Periode</th><th>Rebate/Unit</th><th>Perolehan Rebate</th></tr></thead>
+        <thead><tr><th>Nama Program</th><th>Brand</th><th>Jumlah SKU</th><th>Periode</th><th>Sisa Hari</th><th>Perolehan Rebate</th></tr></thead>
         <tbody id="prog-tbody"><tr><td colspan="6"><div class="empty-state"><div class="ico">&#8987;</div>Memuat&#8230;</div></td></tr></tbody>
       </table>
     </div>
@@ -585,7 +585,7 @@ input::placeholder{color:var(--text3)}
     <table class="ftbl">
       <thead><tr>
         <th>ID Program</th><th>Nama Program</th><th>Brand</th>
-        <th>Periode</th><th>Rebate/Unit</th><th>Aktif</th><th>Aksi</th>
+        <th>Periode</th><th>Sisa Hari</th><th>Aktif</th><th>Aksi</th>
       </tr></thead>
       <tbody id="setting-tbody">
         <tr><td colspan="7"><div class="empty-state"><div class="ico">&#8987;</div>Memuat&#8230;</div></td></tr>
@@ -909,7 +909,7 @@ function renderDashboard(){
         '<td><span class="badge b-'+String(p.brand).toLowerCase()+'">'+p.brand+'</span></td>'+
         '<td>'+(p.skuArray?p.skuArray.length:0)+' SKU</td>'+
         '<td class="text-sm">'+p.tglMulai+' &#8211; '+p.tglAkhir+'</td>'+
-        '<td>Rp '+Number(p.rebate).toLocaleString('id')+'</td>'+
+        '<td class="text-sm fw-600">'+_sisaHari(p)+'</td>'+
         '<td class="fw-600" style="color:var(--green)">Rp '+perolehan.toLocaleString('id')+'</td></tr>';
     }).join('');
   }
@@ -1300,7 +1300,7 @@ function renderSettingTable(){
       '<td class="fw-600">'+p.nama+'</td>'+
       '<td><span class="badge b-'+String(p.brand).toLowerCase()+'">'+p.brand+'</span></td>'+
       '<td class="text-sm nowrap">'+p.tglMulai+' &#8211; '+p.tglAkhir+'</td>'+
-      '<td class="text-sm nowrap">Rp '+Number(p.rebate).toLocaleString('id')+'</td>'+
+      '<td class="text-sm nowrap">'+_sisaHari(p)+'</td>'+
       '<td>'+aktifBadge+'</td>'+
       '<td style="white-space:nowrap">'+
         '<button class="btn btn-outline btn-sm" onclick=\'openModal('+rowJson+')\'>Edit</button> '+
@@ -1500,6 +1500,18 @@ function isExpired(p){
   const end=parseDMY(p.tglAkhir); if(!end) return false;
   end.setHours(23,59,59,999);
   return end < new Date();
+}
+// Hitung sisa hari sampai periode berakhir
+function _sisaHari(p){
+  var end=parseDMY(p.tglAkhir);
+  if(!end) return '-';
+  var now=new Date(); now.setHours(0,0,0,0);
+  end.setHours(0,0,0,0);
+  var diff=Math.ceil((end.getTime()-now.getTime())/(1000*60*60*24));
+  if(diff<0) return '<span style="color:var(--red)">Berakhir</span>';
+  if(diff===0) return '<span style="color:var(--amber)">Hari ini</span>';
+  if(diff<=7) return '<span style="color:var(--amber)">'+diff+' hari lagi</span>';
+  return '<span style="color:var(--green)">'+diff+' hari lagi</span>';
 }
 
 function filterRows(rows,brand,status,cari,fields){
