@@ -386,6 +386,10 @@ input::placeholder{color:var(--text3)}
     <div class="card c-red" style="cursor:pointer" onmouseenter="showGTip(event,'reject')" onmouseleave="hideGTip()"><div class="card-label">&#10007; Ditolak / Tidak Ditemukan</div><div class="card-value" id="s-reject">&#8211;</div></div>
     <div class="card c-purple" style="cursor:pointer" onmouseenter="showGTip(event,'rebate')" onmouseleave="hideGTip()"><div class="card-label">&#128176; Total Rebate</div><div class="card-value" style="color:var(--purple)" id="s-rebate">&#8211;</div></div>
   </div>
+  <div class="card-row">
+    <div class="card c-blue" style="cursor:pointer" onmouseenter="showGTip(event,'disp-produk')" onmouseleave="hideGTip()"><div class="card-label">&#128250; Jumlah Produk Display</div><div class="card-value" id="s-disp-produk">&#8211;</div></div>
+    <div class="card c-green" style="cursor:pointer" onmouseenter="showGTip(event,'disp-rebate')" onmouseleave="hideGTip()"><div class="card-label">&#128176; Total Rebate Display</div><div class="card-value" style="color:var(--green)" id="s-disp-rebate">&#8211;</div></div>
+  </div>
   <div class="panel">
     <div class="section-title">Program Aktif</div>
     <div class="toolbar" style="margin-bottom:10px">
@@ -968,6 +972,27 @@ function renderDashboard(){
   _tipData.diluar = _tipTable(_breakdownByProgram(filtered,'DILUAR'),false);
   _tipData.reject = _tipTable(_breakdownByProgram(filtered,'REJECT'),false);
   _tipData.rebate = _tipTable(_breakdownRebate(filtered),true);
+
+  // Display cards — Jumlah Produk Display + Total Rebate Display
+  var dispAktif=(allDisplay||[]).filter(function(dp){
+    var end=parseDMY(dp.tglAkhir); if(!end) return true;
+    end.setHours(23,59,59,999); return end>=new Date();
+  });
+  var dispTotalProduk=0, dispTotalRebate=0;
+  var dispProdukMap={}, dispRebateMap={};
+  dispAktif.forEach(function(dp){
+    var snCount=(dp.items||[]).filter(function(i){return i.sn;}).length;
+    var nilaiTotal=0;
+    (dp.items||[]).forEach(function(i){nilaiTotal+=Number(i.nilai)||0;});
+    dispTotalProduk+=snCount;
+    dispTotalRebate+=nilaiTotal;
+    dispProdukMap[dp.nama]=snCount;
+    dispRebateMap[String(dp.brand||'-')+' | '+dp.nama]=nilaiTotal;
+  });
+  document.getElementById('s-disp-produk').textContent=dispTotalProduk.toLocaleString('id');
+  document.getElementById('s-disp-rebate').textContent='Rp '+dispTotalRebate.toLocaleString('id');
+  _tipData['disp-produk']=_tipTable(dispProdukMap,false);
+  _tipData['disp-rebate']=_tipTable(dispRebateMap,true);
 
   // Program aktif — gabungkan Sell Out + Display, dengan filter tipe & brand
   var tipeFilter=(document.getElementById('prog-tipe-filter')||{}).value||'';
