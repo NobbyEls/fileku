@@ -506,7 +506,7 @@ function getAppData() {
 //  MENU (akses dari Google Sheet)
 // ============================================================
 //  DISPLAY PROGRAM — terpisah dari Rebate
-//  Sheet format: A=ID, B=Nama Program, C=Nilai/SN, D=Tgl Mulai, E=Tgl Akhir, F=SKU, G=Serial Number
+//  Sheet format: A=ID, B=Nama, C=Brand, D=Tgl Mulai, E=Tgl Akhir, F=SKU, G=SN, H=Nilai/SKU
 // ============================================================
 
 function getDisplayData() {
@@ -515,8 +515,7 @@ function getDisplayData() {
     const s = ss.getSheetByName(CFG.SHEET.DISPLAY);
     if (!s || s.getLastRow() < 2) return JSON.stringify({ ok:true, programs:[] });
 
-    const data = s.getRange(2, 1, s.getLastRow()-1, 7).getValues();
-    // Grup by ID program
+    const data = s.getRange(2, 1, s.getLastRow()-1, 8).getValues();
     const map = {};
     data.forEach(r => {
       if (!r[0]) return;
@@ -525,7 +524,7 @@ function getDisplayData() {
         map[id] = {
           id: id,
           nama: r[1].toString(),
-          nilai: Number(r[2]) || 0,
+          brand: r[2].toString(),
           tglMulai: r[3] instanceof Date ? _fmt(r[3]) : r[3],
           tglAkhir: r[4] instanceof Date ? _fmt(r[4]) : r[4],
           items: []
@@ -533,7 +532,8 @@ function getDisplayData() {
       }
       const sku = r[5].toString().trim();
       const sn = r[6].toString().trim();
-      if (sku || sn) map[id].items.push({ sku: sku, sn: sn });
+      const nilai = Number(r[7]) || 0;
+      if (sku || sn) map[id].items.push({ sku: sku, sn: sn, nilai: nilai });
     });
     return JSON.stringify({ ok:true, programs: Object.values(map) });
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
@@ -549,7 +549,6 @@ function saveDisplayProgram(json) {
     const id = prog.id || ('DSP-' + Date.now());
     const items = prog.items || [];
 
-    // Hapus baris lama dengan ID ini (jika edit)
     if (prog.id) {
       const existing = s.getRange(2, 1, Math.max(1, s.getLastRow()-1), 1).getValues();
       for (let i = existing.length - 1; i >= 0; i--) {
@@ -557,17 +556,16 @@ function saveDisplayProgram(json) {
       }
     }
 
-    // Tulis baris baru (1 baris per SKU+SN)
-    if (items.length === 0) items.push({ sku:'', sn:'' });
+    if (items.length === 0) items.push({ sku:'', sn:'', nilai:0 });
     const rows = items.map(item => [
-      id, prog.nama, Number(prog.nilai) || 0,
+      id, prog.nama, prog.brand || '',
       _parseDDMMYYYY(prog.tglMulai), _parseDDMMYYYY(prog.tglAkhir),
-      item.sku, item.sn
+      item.sku, item.sn, Number(item.nilai) || 0
     ]);
     const startRow = s.getLastRow() + 1;
-    s.getRange(startRow, 1, rows.length, 7).setValues(rows);
+    s.getRange(startRow, 1, rows.length, 8).setValues(rows);
     s.getRange(startRow, 4, rows.length, 2).setNumberFormat('DD/MM/YYYY');
-    s.getRange(startRow, 3, rows.length, 1).setNumberFormat('Rp #,##0');
+    s.getRange(startRow, 8, rows.length, 1).setNumberFormat('Rp #,##0');
 
     return JSON.stringify({ ok:true, id:id });
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
@@ -589,7 +587,7 @@ function deleteDisplayProgram(id) {
 function _setupDisplay(ss) {
   const s = ss.getSheetByName(CFG.SHEET.DISPLAY);
   if (s.getLastRow() > 0) return;
-  const hdr = ['ID Program','Nama Program','Nilai/SN (Rp)','Tgl Mulai','Tgl Akhir','SKU','Serial Number'];
+  const hdr = ['ID Program','Nama Program','Brand','Tgl Mulai','Tgl Akhir','SKU','Serial Number','Nilai/SKU (Rp)'];
   s.getRange(1,1,1,hdr.length).setValues([hdr])
     .setFontWeight('bold').setBackground('#6366f1').setFontColor('#fff');
   s.setFrozenRows(1);

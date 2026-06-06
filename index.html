@@ -388,10 +388,20 @@ input::placeholder{color:var(--text3)}
   </div>
   <div class="panel">
     <div class="section-title">Program Aktif</div>
+    <div class="toolbar" style="margin-bottom:10px">
+      <select id="prog-tipe-filter" onchange="renderDashboard()">
+        <option value="">Semua Tipe</option>
+        <option value="sellout">Sell Out</option>
+        <option value="display">Display</option>
+      </select>
+      <select id="prog-brand-filter" onchange="renderDashboard()">
+        <option value="">Semua Brand</option><option>ACER</option><option>ASUS</option><option>LENOVO</option><option>HP</option>
+      </select>
+    </div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Nama Program</th><th>Brand</th><th>Jumlah SKU</th><th>Periode</th><th>Sisa Hari</th><th>Perolehan Rebate</th></tr></thead>
-        <tbody id="prog-tbody"><tr><td colspan="6"><div class="empty-state"><div class="ico">&#8987;</div>Memuat&#8230;</div></td></tr></tbody>
+        <thead><tr><th>Nama Program</th><th>Tipe</th><th>Brand</th><th>Jumlah SKU</th><th>Periode</th><th>Sisa Hari</th><th>Perolehan</th></tr></thead>
+        <tbody id="prog-tbody"><tr><td colspan="7"><div class="empty-state"><div class="ico">&#8987;</div>Memuat&#8230;</div></td></tr></tbody>
       </table>
     </div>
   </div>
@@ -619,22 +629,22 @@ input::placeholder{color:var(--text3)}
     <div class="form-2">
       <div class="form-row"><label>Nama Program</label>
         <input type="text" id="d-nama" placeholder="Contoh: Display Acer Juni 2026"></div>
-      <div class="form-row"><label>Nilai per SN (Rp)</label>
-        <input type="number" id="d-nilai" placeholder="500000"></div>
+      <div class="form-row"><label>Brand</label>
+        <select id="d-brand"><option value="ACER">ACER</option><option value="ASUS">ASUS</option><option value="LENOVO">LENOVO</option><option value="HP">HP</option></select></div>
     </div>
     <div class="form-2">
       <div class="form-row"><label>Tanggal Mulai</label><input type="date" id="d-mulai"></div>
       <div class="form-row"><label>Tanggal Berakhir</label><input type="date" id="d-akhir"></div>
     </div>
     <div class="form-row">
-      <label>Daftar SKU + Serial Number</label>
+      <label>Daftar SKU + Serial Number + Nilai per SKU</label>
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <button type="button" class="btn btn-outline btn-sm" onclick="addDispRow('','')">+ Tambah Manual</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="addDispRow('','','')">+ Tambah Manual</button>
         <button type="button" class="btn btn-success btn-sm" onclick="document.getElementById('fi-disp-import').click()">&#128194; Import Excel</button>
         <input type="file" id="fi-disp-import" accept=".csv,.xlsx,.xls" style="display:none" onchange="importDispFile(this)">
         <button type="button" class="btn btn-ghost btn-sm" onclick="clearDispRows()">Hapus Semua</button>
       </div>
-      <div class="form-hint" style="margin-bottom:8px">Format Excel: Kolom A = Kode SKU, Kolom B = Serial Number</div>
+      <div class="form-hint" style="margin-bottom:8px">Format Excel: Kolom A = SKU, Kolom B = Serial Number, Kolom C = Nilai (Rp)</div>
       <div id="disp-rows" style="max-height:220px;overflow-y:auto"></div>
       <div id="disp-count" class="text-sm" style="margin-top:6px;color:var(--text3)"></div>
     </div>
@@ -848,7 +858,18 @@ function showGTip(evt, key){
 function hideGTip(){document.getElementById('g-tip').style.display='none';}
 
 // ── DASHBOARD ──
-function loadDashboard(){ loadAppData(renderDashboard); }
+function loadDashboard(){
+  loadAppData(function(){
+    // Also fetch display data for combined program table
+    google.script.run
+      .withSuccessHandler(function(res){
+        var d=JSON.parse(res);if(d.ok) allDisplay=d.programs||[];
+        renderDashboard();
+      })
+      .withFailureHandler(function(){ renderDashboard(); })
+      .getDisplayData();
+  });
+}
 
 var dashFilter = { from:null, to:null, brand:'' };
 
@@ -948,21 +969,45 @@ function renderDashboard(){
   _tipData.reject = _tipTable(_breakdownByProgram(filtered,'REJECT'),false);
   _tipData.rebate = _tipTable(_breakdownRebate(filtered),true);
 
-  // Program aktif — TIDAK ikut filter (selalu tampilkan semua program aktif)
-  var aktif = allPrograms.filter(function(p){ return String(p.aktif).toUpperCase()==='YES' && !isExpired(p); });
+  // Program aktif — gabungkan Sell Out + Display, dengan filter tipe & brand
+  var tipeFilter=(document.getElementById('prog-tipe-filter')||{}).value||'';
+  var brandFilterProg=(document.getElementById('prog-brand-filter')||{}).value||'';
+
+  var selloutProgs = allPrograms.filter(function(p){ return String(p.aktif).toUpperCase()==='YES' && !isExpired(p); })
+    .map(function(p){
+      return {nama:p.nama, tipe:'Sell Out', brand:String(p.brand||''), skuCount:p.skuArray?p.skuArray.length:0,
+              tglMulai:p.tglMulai, tglAkhir:p.tglAkhir, perolehan:_perolehanRebate(p)};
+    });
+  var displayProgs = (allDisplay||[]).filter(function(dp){
+    var end=parseDMY(dp.tglAkhir); if(!end) return true;
+    end.setHours(23,59,59,999); return end>=new Date();
+  }).map(function(dp){
+    var totalNilai=0;
+    (dp.items||[]).forEach(function(it){totalNilai+=Number(it.nilai)||0;});
+    var skus={}; (dp.items||[]).forEach(function(it){if(it.sku)skus[it.sku]=1;});
+    return {nama:dp.nama, tipe:'Display', brand:String(dp.brand||''), skuCount:Object.keys(skus).length,
+            tglMulai:dp.tglMulai, tglAkhir:dp.tglAkhir, perolehan:totalNilai};
+  });
+  var combinedProgs = selloutProgs.concat(displayProgs);
+  if(tipeFilter==='sellout') combinedProgs=combinedProgs.filter(function(p){return p.tipe==='Sell Out';});
+  if(tipeFilter==='display') combinedProgs=combinedProgs.filter(function(p){return p.tipe==='Display';});
+  if(brandFilterProg) combinedProgs=combinedProgs.filter(function(p){return p.brand.toUpperCase()===brandFilterProg.toUpperCase();});
+
   var tb=document.getElementById('prog-tbody');
-  if(!aktif.length){
-    tb.innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="ico">&#128203;</div>Belum ada program aktif</div></td></tr>';
+  if(!combinedProgs.length){
+    tb.innerHTML='<tr><td colspan="7"><div class="empty-state"><div class="ico">&#128203;</div>Tidak ada program aktif</div></td></tr>';
   }else{
-    tb.innerHTML=aktif.map(function(p){
-      var perolehan=_perolehanRebate(p);
+    tb.innerHTML=combinedProgs.map(function(p){
+      var tipeBadge=p.tipe==='Display'?'<span class="badge" style="background:rgba(99,102,241,.15);color:#818cf8;border-color:rgba(99,102,241,.25)">Display</span>'
+        :'<span class="badge b-valid">Sell Out</span>';
       return '<tr>'+
         '<td class="fw-600">'+p.nama+'</td>'+
-        '<td><span class="badge b-'+String(p.brand).toLowerCase()+'">'+p.brand+'</span></td>'+
-        '<td>'+(p.skuArray?p.skuArray.length:0)+' SKU</td>'+
+        '<td>'+tipeBadge+'</td>'+
+        '<td><span class="badge b-'+p.brand.toLowerCase()+'">'+p.brand+'</span></td>'+
+        '<td>'+p.skuCount+' SKU</td>'+
         '<td class="text-sm">'+p.tglMulai+' &#8211; '+p.tglAkhir+'</td>'+
         '<td class="text-sm fw-600">'+_sisaHari(p)+'</td>'+
-        '<td class="fw-600" style="color:var(--green)">Rp '+perolehan.toLocaleString('id')+'</td></tr>';
+        '<td class="fw-600" style="color:var(--green)">Rp '+p.perolehan.toLocaleString('id')+'</td></tr>';
     }).join('');
   }
 }
@@ -1652,11 +1697,13 @@ function renderDisplayCards(){
       else sisaHari='<span style="color:var(--green)">'+diff+' hari lagi</span>';
     }
     var totalSN=p.items?p.items.filter(function(i){return i.sn;}).length:0;
-    var totalNilai=totalSN*(Number(p.nilai)||0);
+    var totalNilai=0;
+    (p.items||[]).forEach(function(it){totalNilai+=Number(it.nilai)||0;});
     return '<div class="prog-card">'+
-      '<div class="prog-card-head ph-acer">'+
+      '<div class="prog-card-head ph-'+String(p.brand||'acer').toLowerCase()+'">'+
         '<div class="prog-card-name">'+p.nama+'</div>'+
         '<div class="prog-card-meta">'+
+          '<span class="badge b-'+String(p.brand||'').toLowerCase()+'">'+p.brand+'</span>'+
           '<span class="prog-card-period">'+p.tglMulai+' &#8211; '+p.tglAkhir+'</span>'+
           '<span class="badge b-valid">'+sisaHari+'</span>'+
         '</div>'+
@@ -1664,14 +1711,12 @@ function renderDisplayCards(){
       '<div class="prog-card-body">'+
         '<div class="prog-stats">'+
           '<div class="prog-stat"><div class="prog-stat-val b">'+totalSN+'</div><div class="prog-stat-lbl">Total SN</div></div>'+
-          '<div class="prog-stat"><div class="prog-stat-val g">Rp '+Number(p.nilai||0).toLocaleString('id')+'</div><div class="prog-stat-lbl">Nilai/SN</div></div>'+
           '<div class="prog-stat"><div class="prog-stat-val p">Rp '+totalNilai.toLocaleString('id')+'</div><div class="prog-stat-lbl">Total Nilai</div></div>'+
-          '<div class="prog-stat"><div class="prog-stat-val" style="font-size:14px">'+sisaHari+'</div><div class="prog-stat-lbl">Sisa Waktu</div></div>'+
         '</div>'+
         '<div class="tbl-wrap" style="max-height:180px;margin-bottom:10px">'+
-          '<table class="ftbl"><thead><tr><th>#</th><th>SKU</th><th>Serial Number</th></tr></thead><tbody>'+
+          '<table class="ftbl"><thead><tr><th>#</th><th>SKU</th><th>Serial Number</th><th>Nilai</th></tr></thead><tbody>'+
           (p.items||[]).filter(function(i){return i.sku||i.sn;}).map(function(item,idx){
-            return '<tr><td class="text-sm">'+(idx+1)+'</td><td class="text-sm">'+item.sku+'</td><td class="mono">'+item.sn+'</td></tr>';
+            return '<tr><td class="text-sm">'+(idx+1)+'</td><td class="text-sm">'+item.sku+'</td><td class="mono">'+item.sn+'</td><td class="text-sm">Rp '+Number(item.nilai||0).toLocaleString('id')+'</td></tr>';
           }).join('')+
         '</tbody></table></div>'+
         '<div style="display:flex;gap:8px">'+
@@ -1687,13 +1732,13 @@ function openDisplayModal(prog){
   editDispId=prog?prog.id:null;
   document.getElementById('disp-modal-title').textContent=prog?'Edit Program Display':'Tambah Program Display';
   document.getElementById('d-nama').value=prog?prog.nama:'';
-  document.getElementById('d-nilai').value=prog?prog.nilai:'';
+  document.getElementById('d-brand').value=prog?prog.brand:'ACER';
   var toDt=function(s){if(!s)return'';var p=s.split('/');return p.length===3?(p[2]+'-'+p[1]+'-'+p[0]):s;};
   document.getElementById('d-mulai').value=prog?toDt(prog.tglMulai):'';
   document.getElementById('d-akhir').value=prog?toDt(prog.tglAkhir):'';
   document.getElementById('disp-rows').innerHTML='';
   if(prog&&prog.items){
-    prog.items.forEach(function(item){addDispRow(item.sku,item.sn);});
+    prog.items.forEach(function(item){addDispRow(item.sku,item.sn,item.nilai||'');});
   }
   updateDispCount();
   document.getElementById('disp-overlay').classList.add('open');
@@ -1712,10 +1757,10 @@ function deleteDisplay(id){
 }
 function saveDisplayProgram(){
   var nama=document.getElementById('d-nama').value.trim();
-  var nilai=document.getElementById('d-nilai').value;
+  var brand=document.getElementById('d-brand').value;
   var mulai=document.getElementById('d-mulai').value;
   var akhir=document.getElementById('d-akhir').value;
-  if(!nama||!nilai||!mulai||!akhir){toast('Nama, nilai, dan periode wajib diisi','err');return;}
+  if(!nama||!mulai||!akhir){toast('Nama, brand, dan periode wajib diisi','err');return;}
   var container=document.getElementById('disp-rows');
   var items=[];
   var rows=container.children;
@@ -1723,21 +1768,23 @@ function saveDisplayProgram(){
     var inputs=rows[i].querySelectorAll('input');
     var sku=inputs[0].value.trim();
     var sn=inputs[1].value.trim();
-    if(sku||sn) items.push({sku:sku,sn:sn});
+    var nilai=inputs[2]?inputs[2].value.trim():'0';
+    if(sku||sn) items.push({sku:sku,sn:sn,nilai:Number(nilai)||0});
   }
   var fmtDate=function(s){return s?s.split('-').reverse().join('/'):'';};
-  var payload={id:editDispId,nama:nama,nilai:Number(nilai),tglMulai:fmtDate(mulai),tglAkhir:fmtDate(akhir),items:items};
+  var payload={id:editDispId,nama:nama,brand:brand,tglMulai:fmtDate(mulai),tglAkhir:fmtDate(akhir),items:items};
   google.script.run
     .withSuccessHandler(function(res){var d=JSON.parse(res);if(d.ok){toast('Program display disimpan','ok');closeDisplayModal();loadDisplayData();}else toast(d.error,'err');})
     .withFailureHandler(function(e){toast(e.message,'err');})
     .saveDisplayProgram(JSON.stringify(payload));
 }
-function addDispRow(sku,sn){
+function addDispRow(sku,sn,nilai){
   var container=document.getElementById('disp-rows');
   var row=document.createElement('div');
-  row.style.cssText='display:flex;gap:8px;margin-bottom:5px;align-items:center';
-  row.innerHTML='<input type="text" placeholder="Kode SKU" style="flex:1" value="'+(sku||'').split('"').join('&quot;')+'">'+
-    '<input type="text" placeholder="Serial Number" style="flex:1.5" value="'+(sn||'').split('"').join('&quot;')+'">'+
+  row.style.cssText='display:flex;gap:6px;margin-bottom:5px;align-items:center';
+  row.innerHTML='<input type="text" placeholder="SKU" style="flex:1" value="'+(sku||'').split('"').join('&quot;')+'">'+
+    '<input type="text" placeholder="Serial Number" style="flex:1.2" value="'+(sn||'').split('"').join('&quot;')+'">'+
+    '<input type="number" placeholder="Nilai (Rp)" style="flex:0.8;min-width:100px" value="'+(nilai||'')+'">'+
     '<button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove();updateDispCount()" style="padding:4px 8px">&#10005;</button>';
   container.appendChild(row);
   updateDispCount();
@@ -1768,7 +1815,8 @@ function importDispFile(input){
     var added=0;
     for(var i=startIdx;i<rows.length;i++){
       var r=rows[i];if(!r||!r[0])continue;
-      addDispRow(String(r[0]).trim(), r[1]?String(r[1]).trim():'');
+      var nilai=r[2]?String(r[2]).trim().split('.').join('').split(',').join(''):'';
+      addDispRow(String(r[0]).trim(), r[1]?String(r[1]).trim():'', nilai);
       added++;
     }
     toast('Import: '+added+' item ditambahkan','ok');
