@@ -38,6 +38,7 @@ const CFG = {
     HASIL:     '✅ Hasil Validasi',
     SUMMARY:   '📊 Summary Rebate',
     STOK:      '📦 Stok',
+    DISPLAY:   '📺 Display',
   },
 
   // Data Penjualan / POS  (1-indexed, kolom A=1)
@@ -504,6 +505,97 @@ function getAppData() {
 // ============================================================
 //  MENU (akses dari Google Sheet)
 // ============================================================
+//  DISPLAY PROGRAM — terpisah dari Rebate
+//  Sheet format: A=ID, B=Nama Program, C=Nilai/SN, D=Tgl Mulai, E=Tgl Akhir, F=SKU, G=Serial Number
+// ============================================================
+
+function getDisplayData() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const s = ss.getSheetByName(CFG.SHEET.DISPLAY);
+    if (!s || s.getLastRow() < 2) return JSON.stringify({ ok:true, programs:[] });
+
+    const data = s.getRange(2, 1, s.getLastRow()-1, 7).getValues();
+    // Grup by ID program
+    const map = {};
+    data.forEach(r => {
+      if (!r[0]) return;
+      const id = r[0].toString();
+      if (!map[id]) {
+        map[id] = {
+          id: id,
+          nama: r[1].toString(),
+          nilai: Number(r[2]) || 0,
+          tglMulai: r[3] instanceof Date ? _fmt(r[3]) : r[3],
+          tglAkhir: r[4] instanceof Date ? _fmt(r[4]) : r[4],
+          items: []
+        };
+      }
+      const sku = r[5].toString().trim();
+      const sn = r[6].toString().trim();
+      if (sku || sn) map[id].items.push({ sku: sku, sn: sn });
+    });
+    return JSON.stringify({ ok:true, programs: Object.values(map) });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+function saveDisplayProgram(json) {
+  try {
+    const prog = JSON.parse(json);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let s = ss.getSheetByName(CFG.SHEET.DISPLAY);
+    if (!s) { s = ss.insertSheet(CFG.SHEET.DISPLAY); _setupDisplay(ss); }
+
+    const id = prog.id || ('DSP-' + Date.now());
+    const items = prog.items || [];
+
+    // Hapus baris lama dengan ID ini (jika edit)
+    if (prog.id) {
+      const existing = s.getRange(2, 1, Math.max(1, s.getLastRow()-1), 1).getValues();
+      for (let i = existing.length - 1; i >= 0; i--) {
+        if (existing[i][0].toString() === prog.id) s.deleteRow(i + 2);
+      }
+    }
+
+    // Tulis baris baru (1 baris per SKU+SN)
+    if (items.length === 0) items.push({ sku:'', sn:'' });
+    const rows = items.map(item => [
+      id, prog.nama, Number(prog.nilai) || 0,
+      _parseDDMMYYYY(prog.tglMulai), _parseDDMMYYYY(prog.tglAkhir),
+      item.sku, item.sn
+    ]);
+    const startRow = s.getLastRow() + 1;
+    s.getRange(startRow, 1, rows.length, 7).setValues(rows);
+    s.getRange(startRow, 4, rows.length, 2).setNumberFormat('DD/MM/YYYY');
+    s.getRange(startRow, 3, rows.length, 1).setNumberFormat('Rp #,##0');
+
+    return JSON.stringify({ ok:true, id:id });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+function deleteDisplayProgram(id) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const s = ss.getSheetByName(CFG.SHEET.DISPLAY);
+    if (!s || s.getLastRow() < 2) return JSON.stringify({ ok:false, error:'Tidak ditemukan' });
+    const data = s.getRange(2, 1, s.getLastRow()-1, 1).getValues();
+    for (let i = data.length - 1; i >= 0; i--) {
+      if (data[i][0].toString() === id.toString()) s.deleteRow(i + 2);
+    }
+    return JSON.stringify({ ok:true });
+  } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
+}
+
+function _setupDisplay(ss) {
+  const s = ss.getSheetByName(CFG.SHEET.DISPLAY);
+  if (s.getLastRow() > 0) return;
+  const hdr = ['ID Program','Nama Program','Nilai/SN (Rp)','Tgl Mulai','Tgl Akhir','SKU','Serial Number'];
+  s.getRange(1,1,1,hdr.length).setValues([hdr])
+    .setFontWeight('bold').setBackground('#6366f1').setFontColor('#fff');
+  s.setFrozenRows(1);
+}
+
+// ============================================================
 
 function onOpen() {
   SpreadsheetApp.getUi()
@@ -523,6 +615,7 @@ function setupSheets() {
   _setupSetting(ss);
   _setupHasil(ss);
   _setupStok(ss);
+  _setupDisplay(ss);
   SpreadsheetApp.getUi().alert('Setup selesai. Silakan deploy sebagai Web App untuk mengakses antarmuka upload & validasi.');
 }
 
