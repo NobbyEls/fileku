@@ -973,10 +973,21 @@ function renderDashboard(){
   _tipData.reject = _tipTable(_breakdownByProgram(filtered,'REJECT'),false);
   _tipData.rebate = _tipTable(_breakdownRebate(filtered),true);
 
-  // Display cards — Jumlah Produk Display + Total Rebate Display
+  // Display cards — Jumlah Produk Display + Total Rebate Display (ikut filter)
   var dispAktif=(allDisplay||[]).filter(function(dp){
     var end=parseDMY(dp.tglAkhir); if(!end) return true;
-    end.setHours(23,59,59,999); return end>=new Date();
+    end.setHours(23,59,59,999); if(end<new Date()) return false;
+    // Filter brand
+    if(dashFilter.brand && String(dp.brand||'').toUpperCase()!==dashFilter.brand.toUpperCase()) return false;
+    // Filter periode: program harus overlap dengan rentang filter
+    if(dashFilter.from && dashFilter.to){
+      var pStart=parseDMY(dp.tglMulai), pEnd=parseDMY(dp.tglAkhir);
+      if(pStart && pEnd){
+        pStart.setHours(0,0,0,0); pEnd.setHours(23,59,59,999);
+        if(pEnd<dashFilter.from || pStart>dashFilter.to) return false;
+      }
+    }
+    return true;
   });
   var dispTotalProduk=0, dispTotalRebate=0;
   var dispProdukMap={}, dispRebateMap={};
