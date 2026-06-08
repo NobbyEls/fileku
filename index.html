@@ -358,6 +358,7 @@ input::placeholder{color:var(--text3)}
     <button class="tab-btn" onclick="gotoTab('program',this)">Detail Program</button>
     <button class="tab-btn" onclick="gotoTab('setting',this)">Promo Sell Out</button>
     <button class="tab-btn" onclick="gotoTab('display',this)">Promo Display</button>
+    <button class="tab-btn" onclick="gotoTab('closing',this)">Closing Sell Out</button>
   </nav>
 </header>
 
@@ -659,6 +660,86 @@ input::placeholder{color:var(--text3)}
   </div>
 </div>
 
+<!-- ═══ CLOSING SELL OUT ═══ -->
+<div class="pane" id="pane-closing">
+  <div class="toolbar">
+    <select id="cl-brand">
+      <option value="">Semua Brand</option>
+      <option>ACER</option><option>ASUS</option><option>LENOVO</option><option>HP</option>
+    </select>
+    <select id="cl-bulan">
+      <option value="">Semua Bulan</option>
+      <option value="1">Januari</option><option value="2">Februari</option><option value="3">Maret</option>
+      <option value="4">April</option><option value="5">Mei</option><option value="6">Juni</option>
+      <option value="7">Juli</option><option value="8">Agustus</option><option value="9">September</option>
+      <option value="10">Oktober</option><option value="11">November</option><option value="12">Desember</option>
+    </select>
+    <select id="cl-tahun">
+      <option value="">Semua Tahun</option>
+    </select>
+    <button class="btn btn-primary btn-sm" onclick="renderClosing()">&#128202; Tampilkan</button>
+    <button class="btn btn-ghost btn-sm" onclick="resetClosing()">Reset</button>
+    <div class="spacer"></div>
+    <span id="cl-info" class="text-sm" style="color:var(--text3)">Pilih filter untuk menampilkan rekap closing</span>
+  </div>
+  <div class="sum-bar" id="cl-summary" style="display:none"></div>
+  <div class="tbl-wrap">
+    <table class="ftbl">
+      <thead><tr>
+        <th>Nama Program</th><th>Brand</th><th>Periode</th>
+        <th>Jumlah SN</th><th>SN Valid</th><th>SN Ditolak</th><th>Total Rebate</th>
+      </tr></thead>
+      <tbody id="cl-tbody">
+        <tr><td colspan="7"><div class="empty-state"><div class="ico">&#128203;</div>Pilih filter di atas dan klik Tampilkan</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ DRAWER: Detail Closing per Program ═══ -->
+<div class="drawer" id="cl-drawer" onclick="if(event.target.id==='cl-drawer')closeClosingDrawer()">
+  <div class="drawer-box" style="max-width:1100px">
+    <div class="drawer-head">
+      <span class="badge" id="cl-drawer-brand"></span>
+      <div class="drawer-title" id="cl-drawer-title">Detail Closing Program</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeClosingDrawer()">&#10005; Tutup</button>
+    </div>
+    <div class="drawer-body">
+      <div class="sum-bar" id="cl-drawer-summary"></div>
+      <div class="text-sm" style="margin-bottom:8px;color:var(--text2)">Klik baris SKU untuk melihat detail Serial Number.</div>
+      <div class="tbl-wrap">
+        <table class="ftbl">
+          <thead><tr>
+            <th>SKU</th><th>Nilai/SKU</th><th>Total SN</th><th>SN Valid</th><th>SN Ditolak</th><th>Total Rebate</th>
+          </tr></thead>
+          <tbody id="cl-drawer-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DRAWER: Detail SN per SKU di Closing ═══ -->
+<div class="drawer" id="cl-sn-drawer" onclick="if(event.target.id==='cl-sn-drawer')closeClosingSNDrawer()">
+  <div class="drawer-box" style="max-width:1000px">
+    <div class="drawer-head">
+      <div class="drawer-title" id="cl-sn-title">Detail Serial Number</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeClosingSNDrawer()">&#10005; Tutup</button>
+    </div>
+    <div class="drawer-body">
+      <div class="sum-bar" id="cl-sn-summary"></div>
+      <div class="tbl-wrap">
+        <table class="ftbl">
+          <thead><tr>
+            <th>#</th><th>No. Dok</th><th>SN Toko</th><th>SN Brand</th><th>Status</th><th>Alasan / Keterangan</th>
+          </tr></thead>
+          <tbody id="cl-sn-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 </main>
 
 <!-- ═══ DRAWER: Detail Program ═══ -->
@@ -833,6 +914,7 @@ function gotoTab(name,btn){
   if(name==='program')   {}
   if(name==='setting')   loadAppData(renderSettingTable);
   if(name==='display')   loadDisplayData();
+  if(name==='closing')   loadClosingTab();
 }
 
 // ── TOAST ──
@@ -1860,6 +1942,246 @@ function importDispFile(input){
   };
   reader.readAsArrayBuffer(file);
 }
+
+// ═══ CLOSING SELL OUT ═══
+var clCurrentProgram = null; // program yang sedang dibuka di drawer
+var clCurrentSkuMap = null;  // map SKU agg di program tsb
+var clCurrentSkuSel = null;  // SKU yang dipilih (untuk drawer SN)
+
+function loadClosingTab(){
+  // Pastikan data ter-load: programs + hasil
+  loadAppData(function(){
+    populateClosingYears();
+    // Default: kosong (user pilih filter dulu)
+  });
+}
+
+function populateClosingYears(){
+  var sel = document.getElementById('cl-tahun');
+  if(!sel || sel.options.length > 1) return; // sudah terisi
+  // Kumpulkan tahun dari semua program
+  var years = {};
+  (allPrograms||[]).forEach(function(p){
+    var d = parseDMY(p.tglAkhir);
+    if(d) years[d.getFullYear()] = 1;
+    var d2 = parseDMY(p.tglMulai);
+    if(d2) years[d2.getFullYear()] = 1;
+  });
+  // Tambahkan tahun ini juga
+  years[new Date().getFullYear()] = 1;
+  Object.keys(years).sort().reverse().forEach(function(y){
+    var opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    sel.appendChild(opt);
+  });
+}
+
+function resetClosing(){
+  document.getElementById('cl-brand').value = '';
+  document.getElementById('cl-bulan').value = '';
+  document.getElementById('cl-tahun').value = '';
+  document.getElementById('cl-info').textContent = 'Pilih filter untuk menampilkan rekap closing';
+  document.getElementById('cl-summary').style.display = 'none';
+  document.getElementById('cl-tbody').innerHTML =
+    '<tr><td colspan="7"><div class="empty-state"><div class="ico">&#128203;</div>Pilih filter di atas dan klik Tampilkan</div></td></tr>';
+}
+
+// Hitung rekap per program (berbasis allHasil yang assign ke program tsb)
+function _closingStats(prog){
+  var snTotal=0, snValid=0, snDitolak=0, totalRebate=0;
+  (allHasil||[]).forEach(function(r){
+    if(String(r.program||'') !== String(prog.nama)) return;
+    snTotal++;
+    var u = String(r.status||'').toUpperCase();
+    if(u.indexOf('VALID')>=0){ snValid++; totalRebate += Number(r.rebate)||0; }
+    else if(u.indexOf('DITOLAK')>=0 || u.indexOf('TIDAK')>=0){ snDitolak++; }
+  });
+  return { snTotal:snTotal, snValid:snValid, snDitolak:snDitolak, totalRebate:totalRebate };
+}
+
+function renderClosing(){
+  var brand = document.getElementById('cl-brand').value;
+  var bulan = document.getElementById('cl-bulan').value;
+  var tahun = document.getElementById('cl-tahun').value;
+
+  // Filter program: tgl akhir masuk bulan/tahun yang dipilih + brand
+  var filtered = (allPrograms||[]).filter(function(p){
+    if(brand && String(p.brand||'').toUpperCase() !== brand.toUpperCase()) return false;
+    var d = parseDMY(p.tglAkhir);
+    if(!d) return false;
+    if(bulan && (d.getMonth()+1) !== Number(bulan)) return false;
+    if(tahun && d.getFullYear() !== Number(tahun)) return false;
+    return true;
+  });
+
+  var info = [];
+  if(brand) info.push(brand);
+  if(bulan){
+    var bulanNames=['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    info.push(bulanNames[Number(bulan)]);
+  }
+  if(tahun) info.push(tahun);
+  document.getElementById('cl-info').innerHTML = info.length ?
+    ('<span style="color:var(--blue)">Periode closing: '+info.join(' | ')+'</span>') :
+    'Menampilkan semua program';
+
+  var tb = document.getElementById('cl-tbody');
+  if(!filtered.length){
+    tb.innerHTML='<tr><td colspan="7"><div class="empty-state"><div class="ico">&#128269;</div>Tidak ada program yang sesuai filter</div></td></tr>';
+    document.getElementById('cl-summary').style.display='none';
+    return;
+  }
+
+  // Hitung total summary
+  var grandTotal = {snTotal:0, snValid:0, snDitolak:0, totalRebate:0, jumlahProgram:filtered.length};
+  var rows = filtered.map(function(p){
+    var s = _closingStats(p);
+    grandTotal.snTotal += s.snTotal;
+    grandTotal.snValid += s.snValid;
+    grandTotal.snDitolak += s.snDitolak;
+    grandTotal.totalRebate += s.totalRebate;
+    var idEsc = String(p.id).split("'").join("\\'");
+    return '<tr style="cursor:pointer" onclick="openClosingDetail(\''+idEsc+'\')">'+
+      '<td class="fw-600">'+p.nama+'</td>'+
+      '<td><span class="badge b-'+String(p.brand||'').toLowerCase()+'">'+p.brand+'</span></td>'+
+      '<td class="text-sm">'+p.tglMulai+' &#8211; '+p.tglAkhir+'</td>'+
+      '<td>'+s.snTotal.toLocaleString('id')+'</td>'+
+      '<td style="color:var(--green)">'+s.snValid.toLocaleString('id')+'</td>'+
+      '<td style="color:var(--red)">'+s.snDitolak.toLocaleString('id')+'</td>'+
+      '<td class="fw-600" style="color:var(--green)">Rp '+s.totalRebate.toLocaleString('id')+'</td>'+
+    '</tr>';
+  }).join('');
+  tb.innerHTML = rows;
+
+  // Summary bar
+  var bar = document.getElementById('cl-summary');
+  bar.style.display = 'flex';
+  bar.innerHTML =
+    '<span class="sum-pill" style="background:rgba(79,156,249,.12);color:var(--blue);border-color:rgba(79,156,249,.2)">Program: '+grandTotal.jumlahProgram+'</span>'+
+    '<span class="sum-pill sp-valid">SN Valid: '+grandTotal.snValid.toLocaleString('id')+'</span>'+
+    '<span class="sum-pill sp-rejected">SN Ditolak: '+grandTotal.snDitolak.toLocaleString('id')+'</span>'+
+    '<span class="sum-pill" style="background:rgba(155,124,248,.12);color:var(--purple);border-color:rgba(155,124,248,.2)">Total SN: '+grandTotal.snTotal.toLocaleString('id')+'</span>'+
+    '<span class="sum-rebate">Total Rebate: Rp '+grandTotal.totalRebate.toLocaleString('id')+'</span>';
+}
+
+// Buka drawer detail per program: rekap per SKU
+function openClosingDetail(progId){
+  var prog = (allPrograms||[]).find(function(p){return String(p.id)===String(progId);});
+  if(!prog) return;
+  clCurrentProgram = prog;
+
+  // Bangun map SKU + nilai per SKU dari skuList
+  var skuMap = {}; // SKU(upper) → { sku, nilai, snTotal, snValid, snDitolak, totalRebate, snList:[] }
+  String(prog.skuList||'').split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(entry){
+    var ci = entry.lastIndexOf(':');
+    var sku = entry, nilai = Number(prog.rebate)||0;
+    if(ci>0){
+      var maybeSku = entry.substring(0,ci).trim();
+      var maybeReb = Number(entry.substring(ci+1).trim());
+      if(!isNaN(maybeReb) && maybeReb>0){ sku = maybeSku; nilai = maybeReb; }
+    }
+    var key = sku.toUpperCase();
+    skuMap[key] = { sku:sku, nilai:nilai, snTotal:0, snValid:0, snDitolak:0, totalRebate:0, snList:[] };
+  });
+
+  // Distribusikan SN dari allHasil ke SKU map (yang assign ke program ini)
+  (allHasil||[]).forEach(function(r){
+    if(String(r.program||'') !== String(prog.nama)) return;
+    var key = String(r.kodeBarang||'').toUpperCase();
+    if(!skuMap[key]){
+      // SKU belum ada di list (mis. dari hasil lama) → tambahkan
+      skuMap[key] = { sku:r.kodeBarang, nilai:Number(r.rebate)||0, snTotal:0, snValid:0, snDitolak:0, totalRebate:0, snList:[] };
+    }
+    var entry = skuMap[key];
+    entry.snTotal++;
+    entry.snList.push(r);
+    var u = String(r.status||'').toUpperCase();
+    if(u.indexOf('VALID')>=0){ entry.snValid++; entry.totalRebate += Number(r.rebate)||0; }
+    else if(u.indexOf('DITOLAK')>=0 || u.indexOf('TIDAK')>=0){ entry.snDitolak++; }
+  });
+  clCurrentSkuMap = skuMap;
+
+  // Header drawer
+  document.getElementById('cl-drawer-title').textContent = 'Detail Closing: '+prog.nama;
+  var bb = document.getElementById('cl-drawer-brand');
+  bb.className = 'badge b-'+String(prog.brand||'').toLowerCase();
+  bb.textContent = prog.brand;
+
+  // Render tabel SKU
+  var skuList = Object.values(skuMap);
+  var totSN=0, totValid=0, totDitolak=0, totReb=0;
+  skuList.forEach(function(s){
+    totSN += s.snTotal; totValid += s.snValid; totDitolak += s.snDitolak; totReb += s.totalRebate;
+  });
+  document.getElementById('cl-drawer-summary').innerHTML =
+    '<span class="sum-pill" style="background:rgba(79,156,249,.12);color:var(--blue);border-color:rgba(79,156,249,.2)">SKU: '+skuList.length+'</span>'+
+    '<span class="sum-pill sp-valid">Valid: '+totValid.toLocaleString('id')+'</span>'+
+    '<span class="sum-pill sp-rejected">Ditolak: '+totDitolak.toLocaleString('id')+'</span>'+
+    '<span class="sum-pill" style="background:rgba(155,124,248,.12);color:var(--purple);border-color:rgba(155,124,248,.2)">Total SN: '+totSN.toLocaleString('id')+'</span>'+
+    '<span class="sum-rebate">Total Rebate: Rp '+totReb.toLocaleString('id')+'</span>';
+
+  var tb = document.getElementById('cl-drawer-tbody');
+  if(!skuList.length){
+    tb.innerHTML='<tr><td colspan="6"><div class="empty-state">Tidak ada SKU</div></td></tr>';
+  }else{
+    tb.innerHTML = skuList.map(function(s){
+      var keyEsc = s.sku.toUpperCase().split("'").join("\\'");
+      return '<tr style="cursor:pointer" onclick="openClosingSN(\''+keyEsc+'\')">'+
+        '<td class="mono">'+s.sku+'</td>'+
+        '<td class="text-sm">Rp '+s.nilai.toLocaleString('id')+'</td>'+
+        '<td>'+s.snTotal.toLocaleString('id')+'</td>'+
+        '<td style="color:var(--green)">'+s.snValid.toLocaleString('id')+'</td>'+
+        '<td style="color:var(--red)">'+s.snDitolak.toLocaleString('id')+'</td>'+
+        '<td class="fw-600" style="color:var(--green)">Rp '+s.totalRebate.toLocaleString('id')+'</td>'+
+      '</tr>';
+    }).join('');
+  }
+
+  document.getElementById('cl-drawer').classList.add('open');
+}
+function closeClosingDrawer(){ document.getElementById('cl-drawer').classList.remove('open'); }
+
+// Buka drawer detail SN per SKU
+function openClosingSN(skuKey){
+  if(!clCurrentSkuMap) return;
+  var entry = clCurrentSkuMap[skuKey];
+  if(!entry) return;
+  clCurrentSkuSel = entry;
+
+  document.getElementById('cl-sn-title').textContent = 'Detail SN: '+entry.sku+' (Program: '+(clCurrentProgram?clCurrentProgram.nama:'-')+')';
+
+  var sns = entry.snList || [];
+  var valid = sns.filter(function(r){return String(r.status||'').toUpperCase().indexOf('VALID')>=0;}).length;
+  var ditolak = sns.filter(function(r){var u=String(r.status||'').toUpperCase(); return u.indexOf('DITOLAK')>=0||u.indexOf('TIDAK')>=0;}).length;
+
+  document.getElementById('cl-sn-summary').innerHTML =
+    '<span class="sum-pill sp-valid">Valid: '+valid+'</span>'+
+    '<span class="sum-pill sp-rejected">Ditolak: '+ditolak+'</span>'+
+    '<span class="sum-pill" style="background:rgba(155,124,248,.12);color:var(--purple);border-color:rgba(155,124,248,.2)">Total: '+sns.length+'</span>'+
+    '<span class="sum-rebate">Total Rebate: Rp '+entry.totalRebate.toLocaleString('id')+'</span>';
+
+  var tb = document.getElementById('cl-sn-tbody');
+  if(!sns.length){
+    tb.innerHTML='<tr><td colspan="6"><div class="empty-state">Tidak ada SN untuk SKU ini</div></td></tr>';
+  }else{
+    tb.innerHTML = sns.map(function(r,i){
+      var b = statusBadge(r.status);
+      var u = String(r.status||'').toUpperCase();
+      var ketStyle = u.indexOf('VALID')>=0 ? 'color:var(--text2)' : 'color:var(--amber)';
+      return '<tr>'+
+        '<td class="text-sm">'+(i+1)+'</td>'+
+        '<td class="text-sm">'+(r.noDok||'-')+'</td>'+
+        '<td class="mono">'+(r.snToko||'-')+'</td>'+
+        '<td class="mono">'+(r.snBrand||'-')+'</td>'+
+        '<td><span class="badge '+b.bc+'">'+b.btx+'</span></td>'+
+        '<td class="text-sm wrap" style="'+ketStyle+'">'+(r.keterangan||'-')+'</td>'+
+      '</tr>';
+    }).join('');
+  }
+
+  document.getElementById('cl-sn-drawer').classList.add('open');
+}
+function closeClosingSNDrawer(){ document.getElementById('cl-sn-drawer').classList.remove('open'); }
 
 window.onload=loadDashboard;
 </script>
