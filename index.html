@@ -235,12 +235,12 @@ input::placeholder{color:var(--text3)}
 .prog-bar-label{font-size:11px;color:var(--text2);margin-bottom:12px}
 
 /* ─── DETAIL DRAWER (full overlay for program detail) ─── */
-.drawer{display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7);
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);align-items:flex-start;justify-content:center;padding:20px}
+.drawer{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.7);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);align-items:flex-start;justify-content:center;padding:70px 20px 20px}
 .drawer.open{display:flex;animation:darken .2s ease}
 @keyframes darken{from{opacity:0}to{opacity:1}}
 .drawer-box{background:#0d1425;border:1px solid rgba(255,255,255,.1);border-radius:16px;
-  width:100%;max-width:1100px;max-height:calc(100vh - 40px);overflow-y:auto;
+  width:100%;max-width:1100px;max-height:calc(100vh - 90px);overflow-y:auto;
   box-shadow:0 24px 80px rgba(0,0,0,.7);animation:slideUp .25s cubic-bezier(.34,1.2,.64,1)}
 @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 .drawer-head{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;
