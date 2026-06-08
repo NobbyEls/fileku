@@ -335,6 +335,27 @@ input::placeholder{color:var(--text3)}
 /* Kolom lebar minimum: Drawer (9 col) */
 .ftbl.drw th:nth-child(7){min-width:220px}  /* Alasan */
 
+/* Closing Drawer: SKU detail table */
+.ftbl.cl-sku th:nth-child(1){min-width:200px}
+.ftbl.cl-sku th:nth-child(2){min-width:110px}
+.ftbl.cl-sku th:nth-child(3){min-width:70px}
+.ftbl.cl-sku th:nth-child(4){min-width:70px}
+.ftbl.cl-sku th:nth-child(5){min-width:70px}
+.ftbl.cl-sku th:nth-child(6){min-width:120px}
+.ftbl.cl-sku td:first-child{white-space:normal!important;word-break:break-all;max-width:260px}
+
+/* Closing Drawer: SN detail table */
+.ftbl.cl-sn th:nth-child(1){min-width:30px}
+.ftbl.cl-sn th:nth-child(2){min-width:160px}
+.ftbl.cl-sn th:nth-child(3){min-width:160px}
+.ftbl.cl-sn th:nth-child(4){min-width:160px}
+.ftbl.cl-sn th:nth-child(5){min-width:90px}
+.ftbl.cl-sn th:nth-child(6){min-width:200px}
+.ftbl.cl-sn td:nth-child(6){white-space:normal!important;word-break:break-word;max-width:300px}
+
+/* Closing rekap tabel */
+.ftbl.cl-rekap td:first-child{white-space:normal!important;max-width:300px}
+
 /* TOOLTIP (global fixed popup) */
 #g-tip{display:none;position:fixed;z-index:9000;
   background:rgba(10,14,30,.97);border:1px solid var(--border2);border-radius:var(--r2);
@@ -684,7 +705,7 @@ input::placeholder{color:var(--text3)}
   </div>
   <div class="sum-bar" id="cl-summary" style="display:none"></div>
   <div class="tbl-wrap">
-    <table class="ftbl">
+    <table class="ftbl cl-rekap">
       <thead><tr>
         <th>Nama Program</th><th>Brand</th><th>Periode</th>
         <th>Jumlah SN</th><th>SN Valid</th><th>SN Ditolak</th><th>Total Rebate</th>
@@ -708,7 +729,7 @@ input::placeholder{color:var(--text3)}
       <div class="sum-bar" id="cl-drawer-summary"></div>
       <div class="text-sm" style="margin-bottom:8px;color:var(--text2)">Klik baris SKU untuk melihat detail Serial Number.</div>
       <div class="tbl-wrap">
-        <table class="ftbl">
+        <table class="ftbl cl-sku">
           <thead><tr>
             <th>SKU</th><th>Nilai/SKU</th><th>Total SN</th><th>SN Valid</th><th>SN Ditolak</th><th>Total Rebate</th>
           </tr></thead>
@@ -729,7 +750,7 @@ input::placeholder{color:var(--text3)}
     <div class="drawer-body">
       <div class="sum-bar" id="cl-sn-summary"></div>
       <div class="tbl-wrap">
-        <table class="ftbl">
+        <table class="ftbl cl-sn">
           <thead><tr>
             <th>#</th><th>No. Dok</th><th>SN Toko</th><th>SN Brand</th><th>Status</th><th>Alasan / Keterangan</th>
           </tr></thead>
