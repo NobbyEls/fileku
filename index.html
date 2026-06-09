@@ -731,7 +731,7 @@ input::placeholder{color:var(--text3)}
       <div class="tbl-wrap">
         <table class="ftbl cl-sku">
           <thead><tr>
-            <th>SKU</th><th>Nilai/SKU</th><th>Total SN</th><th>SN Valid</th><th>SN Ditolak</th><th>Total Rebate</th>
+            <th>SKU</th><th>Nilai/SKU</th><th>Total SN</th><th>SN Valid</th><th>SN Ditolak</th><th>Total Rebate</th><th>Total Stok</th><th>Belum Claim</th><th>Sudah Claim</th>
           </tr></thead>
           <tbody id="cl-drawer-tbody"></tbody>
         </table>
@@ -2130,23 +2130,29 @@ function openClosingDetail(progId){
 
   // Render tabel SKU
   var skuList = Object.values(skuMap);
-  var totSN=0, totValid=0, totDitolak=0, totReb=0;
+  var totSN=0, totValid=0, totDitolak=0, totReb=0, totStok=0, totBelum=0, totSudah=0;
   skuList.forEach(function(s){
     totSN += s.snTotal; totValid += s.snValid; totDitolak += s.snDitolak; totReb += s.totalRebate;
+    var st = (stokMap||{})[s.sku.toUpperCase()] || {totalStok:0,belumClaim:0,sudahClaim:0};
+    totStok += st.totalStok; totBelum += st.belumClaim; totSudah += st.sudahClaim;
   });
   document.getElementById('cl-drawer-summary').innerHTML =
     '<span class="sum-pill" style="background:rgba(79,156,249,.12);color:var(--blue);border-color:rgba(79,156,249,.2)">SKU: '+skuList.length+'</span>'+
     '<span class="sum-pill sp-valid">Valid: '+totValid.toLocaleString('id')+'</span>'+
     '<span class="sum-pill sp-rejected">Ditolak: '+totDitolak.toLocaleString('id')+'</span>'+
     '<span class="sum-pill" style="background:rgba(155,124,248,.12);color:var(--purple);border-color:rgba(155,124,248,.2)">Total SN: '+totSN.toLocaleString('id')+'</span>'+
-    '<span class="sum-rebate">Total Rebate: Rp '+totReb.toLocaleString('id')+'</span>';
+    '<span class="sum-rebate">Rebate: Rp '+totReb.toLocaleString('id')+'</span><br>'+
+    '<span class="sum-pill" style="background:rgba(52,211,153,.12);color:var(--green);border-color:rgba(52,211,153,.2)">Total Stok: '+totStok.toLocaleString('id')+'</span>'+
+    '<span class="sum-pill" style="background:rgba(79,156,249,.12);color:var(--blue);border-color:rgba(79,156,249,.2)">Belum Claim: '+totBelum.toLocaleString('id')+'</span>'+
+    '<span class="sum-pill" style="background:rgba(251,191,36,.12);color:var(--amber);border-color:rgba(251,191,36,.2)">Sudah Claim: '+totSudah.toLocaleString('id')+'</span>';
 
   var tb = document.getElementById('cl-drawer-tbody');
   if(!skuList.length){
-    tb.innerHTML='<tr><td colspan="6"><div class="empty-state">Tidak ada SKU</div></td></tr>';
+    tb.innerHTML='<tr><td colspan="9"><div class="empty-state">Tidak ada SKU</div></td></tr>';
   }else{
     tb.innerHTML = skuList.map(function(s){
       var keyEsc = s.sku.toUpperCase().split("'").join("\\'");
+      var st = (stokMap||{})[s.sku.toUpperCase()] || {totalStok:0,belumClaim:0,sudahClaim:0};
       return '<tr style="cursor:pointer" onclick="openClosingSN(\''+keyEsc+'\')">'+
         '<td class="mono">'+s.sku+'</td>'+
         '<td class="text-sm">Rp '+s.nilai.toLocaleString('id')+'</td>'+
@@ -2154,6 +2160,9 @@ function openClosingDetail(progId){
         '<td style="color:var(--green)">'+s.snValid.toLocaleString('id')+'</td>'+
         '<td style="color:var(--red)">'+s.snDitolak.toLocaleString('id')+'</td>'+
         '<td class="fw-600" style="color:var(--green)">Rp '+s.totalRebate.toLocaleString('id')+'</td>'+
+        '<td class="text-sm">'+st.totalStok.toLocaleString('id')+'</td>'+
+        '<td class="text-sm" style="color:var(--blue)">'+st.belumClaim.toLocaleString('id')+'</td>'+
+        '<td class="text-sm" style="color:var(--amber)">'+st.sudahClaim.toLocaleString('id')+'</td>'+
       '</tr>';
     }).join('');
   }
