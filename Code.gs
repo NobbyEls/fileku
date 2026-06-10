@@ -314,9 +314,18 @@ function uploadBrandData(brand, rows) {
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let s = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
-    s.clearContents();
-    s.getRange(1, 1, normalized.length, maxCols).setValues(normalized);
-    s.getRange(1, 1, 1, maxCols).setFontWeight('bold').setBackground('#e8eaed');
+
+    // v2.9: Append mode — tambahkan di bawah data yang sudah ada
+    if (s.getLastRow() < 1) {
+      s.getRange(1, 1, normalized.length, maxCols).setValues(normalized);
+      s.getRange(1, 1, 1, maxCols).setFontWeight('bold').setBackground('#e8eaed');
+    } else {
+      const dataOnly = normalized.slice(1);
+      if (dataOnly.length > 0) {
+        const startRow = s.getLastRow() + 1;
+        s.getRange(startRow, 1, dataOnly.length, maxCols).setValues(dataOnly);
+      }
+    }
 
     return JSON.stringify({ ok:true, rowsAdded: normalized.length - 1 });
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
@@ -373,9 +382,18 @@ function uploadPosData(rows) {
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const s  = ss.getSheetByName(CFG.SHEET.PENJUALAN) || ss.insertSheet(CFG.SHEET.PENJUALAN);
-    s.clearContents();
-    s.getRange(1, 1, normalized.length, maxCols).setValues(normalized);
-    s.getRange(1, 1, 1, maxCols).setFontWeight('bold').setBackground('#e8eaed');
+
+    // v2.9: Append mode — tambahkan di bawah data yang sudah ada
+    if (s.getLastRow() < 1) {
+      s.getRange(1, 1, normalized.length, maxCols).setValues(normalized);
+      s.getRange(1, 1, 1, maxCols).setFontWeight('bold').setBackground('#e8eaed');
+    } else {
+      const dataOnly = normalized.slice(1);
+      if (dataOnly.length > 0) {
+        const startRow = s.getLastRow() + 1;
+        s.getRange(startRow, 1, dataOnly.length, maxCols).setValues(dataOnly);
+      }
+    }
 
     return JSON.stringify({ ok:true, rowsAdded: expanded.length });
   } catch(e) { return JSON.stringify({ ok:false, error:e.message }); }
