@@ -23,6 +23,44 @@
   --r:12px;--r2:8px;--r3:20px;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+/* LIGHT THEME */
+body.light{--bg:#f5f7fa;--bg2:#ffffff;
+  --glass:rgba(0,0,0,0.03);--glass2:rgba(0,0,0,0.06);
+  --border:rgba(0,0,0,0.1);--border2:rgba(0,0,0,0.18);
+  --text:#1a1a2e;--text2:#4a5568;--text3:#a0aec0;
+  --blue:#2563eb;--blue-dim:rgba(37,99,235,0.1);--blue-glow:rgba(37,99,235,0.2);
+  --purple:#7c3aed;--cyan:#0891b2;
+  --green:#059669;--green-dim:rgba(5,150,105,0.1);
+  --amber:#d97706;--amber-dim:rgba(217,119,6,0.1);
+  --red:#dc2626;--red-dim:rgba(220,38,38,0.1);
+  --acer-c:#2563eb;--asus-c:#dc2626;--lenovo-c:#059669;--pos-c:#7c3aed;--hp-c:#0077b6}
+body.light::before{background:none}
+body.light::after{background-image:none}
+body.light header{background:rgba(255,255,255,.95);border-bottom-color:rgba(0,0,0,.1);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+body.light .logo{background:linear-gradient(120deg,#2563eb,#7c3aed);-webkit-background-clip:text;background-clip:text}
+body.light .card{background:rgba(255,255,255,.8);border-color:rgba(0,0,0,.08)}
+body.light .panel{background:rgba(255,255,255,.7);border-color:rgba(0,0,0,.08)}
+body.light thead tr th{background:rgba(255,255,255,.97)}
+body.light td{border-bottom-color:rgba(0,0,0,.06)}
+body.light .drawer-box{background:#ffffff;border-color:rgba(0,0,0,.12)}
+body.light .drawer-head{background:rgba(255,255,255,.97)}
+body.light .modal{background:rgba(255,255,255,.98);border-color:rgba(0,0,0,.12)}
+body.light .sum-bar{background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.08)}
+body.light .upload-card{background:rgba(255,255,255,.7);border-color:rgba(0,0,0,.08)}
+body.light .drop-zone{border-color:rgba(0,0,0,.2);background:rgba(0,0,0,.02)}
+body.light select,body.light input[type=text],body.light input[type=search],body.light input[type=number],body.light input[type=date],body.light textarea{
+  background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.15);color:var(--text)}
+body.light select option{background:#fff;color:#1a1a2e}
+body.light .t-item.ok{background:rgba(5,150,105,.1);color:#059669}
+body.light .t-item.err{background:rgba(220,38,38,.1);color:#dc2626}
+body.light .t-item.info{background:rgba(0,0,0,.05);color:var(--text)}
+body.light #g-tip{background:rgba(255,255,255,.98);border-color:rgba(0,0,0,.15);color:#1a1a2e}
+body.light .prog-card{background:rgba(255,255,255,.8);border-color:rgba(0,0,0,.08)}
+body.light .prog-stat{background:rgba(0,0,0,.03)}
+body.light .status-tile{background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.08)}
+body.light .tbl-wrap{border-color:rgba(0,0,0,.1)}
+body.light tbody tr:hover td{background:rgba(37,99,235,.05)}
 body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-size:14px;line-height:1.6;color:var(--text);background:var(--bg);min-height:100vh;overflow-x:hidden}
 body::before{content:'';position:fixed;inset:0;z-index:0;
   background:radial-gradient(ellipse 65% 55% at 10% 20%,rgba(79,70,229,.14) 0%,transparent 60%),
@@ -381,6 +419,7 @@ input::placeholder{color:var(--text3)}
     <button class="tab-btn" onclick="gotoTab('display',this)">Promo Display</button>
     <button class="tab-btn" onclick="gotoTab('closing',this)">Closing Sell Out</button>
   </nav>
+  <button class="btn btn-ghost btn-sm" style="margin-left:auto;flex-shrink:0" onclick="toggleTheme()" id="theme-btn">&#9728; Terang</button>
 </header>
 
 <div id="toast"></div>
@@ -570,6 +609,7 @@ input::placeholder{color:var(--text3)}
   </div>
   <div class="toolbar">
     <button class="btn btn-ghost btn-sm" onclick="forceReload('laporan')">&#8635; Refresh</button>
+    <button class="btn btn-success btn-sm" onclick="exportLaporanExcel()">&#128229; Export Excel</button>
     <div class="spacer"></div>
     <select id="lap-brand" onchange="renderLaporan()">
       <option value="">Semua Brand</option><option>ACER</option><option>ASUS</option><option>LENOVO</option><option>HP</option>
@@ -727,7 +767,11 @@ input::placeholder{color:var(--text3)}
     </div>
     <div class="drawer-body">
       <div class="sum-bar" id="cl-drawer-summary"></div>
-      <div class="text-sm" style="margin-bottom:8px;color:var(--text2)">Klik baris SKU untuk melihat detail Serial Number.</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="text-sm" style="color:var(--text2)">Klik baris SKU untuk melihat detail Serial Number.</span>
+        <div class="spacer"></div>
+        <button class="btn btn-success btn-sm" onclick="exportClosingExcel()">&#128229; Export Excel</button>
+      </div>
       <div class="tbl-wrap">
         <table class="ftbl cl-sku">
           <thead><tr>
@@ -2212,6 +2256,57 @@ function openClosingSN(skuKey){
   document.getElementById('cl-sn-drawer').classList.add('open');
 }
 function closeClosingSNDrawer(){ document.getElementById('cl-sn-drawer').classList.remove('open'); }
+
+// ═══ THEME TOGGLE ═══
+function toggleTheme(){
+  var body=document.body;
+  var btn=document.getElementById('theme-btn');
+  if(body.classList.contains('light')){
+    body.classList.remove('light');
+    btn.innerHTML='&#9728; Terang';
+  }else{
+    body.classList.add('light');
+    btn.innerHTML='&#9790; Gelap';
+  }
+}
+
+// ═══ EXPORT EXCEL ═══
+function _downloadExcel(data, headers, filename){
+  var ws = XLSX.utils.aoa_to_sheet([headers].concat(data));
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Data');
+  XLSX.writeFile(wb, filename);
+}
+
+function exportLaporanExcel(){
+  var brand=document.getElementById('lap-brand').value;
+  var status=document.getElementById('lap-status').value;
+  var cari=document.getElementById('lap-cari').value.toLowerCase();
+  var fx=filterRows(allHasil,brand,status,cari,['snToko','noDok','kodeBarang','keterangan']);
+  if(!fx.length){toast('Tidak ada data untuk di-export','err');return;}
+  var headers=['No','No. Dok','Brand','Kode Barang','SN Toko','SN Brand','Status','Alasan/Keterangan','Tgl Brand','Program','Rebate'];
+  var data=fx.map(function(r){
+    return [r.no, r.noDok, r.brand, r.kodeBarang, r.snToko, r.snBrand||'', r.status, r.keterangan||'', r.tglBrand||'', r.program||'', Number(r.rebate)||0];
+  });
+  _downloadExcel(data, headers, 'Laporan_SN_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  toast('Export berhasil: '+data.length+' baris','ok');
+}
+
+function exportClosingExcel(){
+  if(!clCurrentProgram || !clCurrentSkuMap){toast('Tidak ada data','err');return;}
+  var prog=clCurrentProgram;
+  var headers=['SKU','Nilai/SKU','No. Dok','SN Toko','SN Brand','Status','Alasan/Keterangan'];
+  var data=[];
+  Object.values(clCurrentSkuMap).forEach(function(s){
+    (s.snList||[]).forEach(function(r){
+      data.push([s.sku, s.nilai, r.noDok||'', r.snToko||'', r.snBrand||'', r.status||'', r.keterangan||'']);
+    });
+  });
+  if(!data.length){toast('Tidak ada data SN','err');return;}
+  var filename='Closing_'+String(prog.nama).substring(0,30).split(' ').join('_')+'_'+new Date().toISOString().slice(0,10)+'.xlsx';
+  _downloadExcel(data, headers, filename);
+  toast('Export berhasil: '+data.length+' baris','ok');
+}
 
 window.onload=loadDashboard;
 </script>
