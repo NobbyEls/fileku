@@ -2295,17 +2295,16 @@ function exportLaporanExcel(){
 function exportClosingExcel(){
   if(!clCurrentProgram || !clCurrentSkuMap){toast('Tidak ada data','err');return;}
   var prog=clCurrentProgram;
-  var headers=['SKU','Nilai/SKU','No. Dok','SN Toko','SN Brand','Status','Alasan/Keterangan'];
+  var headers=['SKU','Nilai/SKU','Total SN','SN Valid','SN Ditolak','Total Rebate','Total Stok','Belum Claim','Sudah Claim'];
   var data=[];
   Object.values(clCurrentSkuMap).forEach(function(s){
-    (s.snList||[]).forEach(function(r){
-      data.push([s.sku, s.nilai, r.noDok||'', r.snToko||'', r.snBrand||'', r.status||'', r.keterangan||'']);
-    });
+    var st = (stokMap||{})[s.sku.toUpperCase()] || {totalStok:0,belumClaim:0,sudahClaim:0};
+    data.push([s.sku, s.nilai, s.snTotal, s.snValid, s.snDitolak, s.totalRebate, st.totalStok, st.belumClaim, st.sudahClaim]);
   });
-  if(!data.length){toast('Tidak ada data SN','err');return;}
+  if(!data.length){toast('Tidak ada data SKU','err');return;}
   var filename='Closing_'+String(prog.nama).substring(0,30).split(' ').join('_')+'_'+new Date().toISOString().slice(0,10)+'.xlsx';
   _downloadExcel(data, headers, filename);
-  toast('Export berhasil: '+data.length+' baris','ok');
+  toast('Export berhasil: '+data.length+' SKU','ok');
 }
 
 window.onload=loadDashboard;
